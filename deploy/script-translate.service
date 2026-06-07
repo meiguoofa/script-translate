@@ -1,0 +1,13 @@
+[Unit]
+Description=Script Translate API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/script-translate/backend
+EnvironmentFile=/opt/script-translate/backend/.env
+ExecStart=/opt/script-translate/.venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8901
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
