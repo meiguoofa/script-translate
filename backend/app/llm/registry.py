@@ -2,7 +2,11 @@ from dataclasses import asdict, dataclass
 
 from app.config import Settings
 from app.llm.base import BaseLLMProvider
-from app.llm.providers import OpenAICompatibleProvider
+from app.llm.providers import (
+    AnthropicMessagesProvider,
+    OpenAICompatibleProvider,
+    RoutingProvider,
+)
 
 
 @dataclass(slots=True)
@@ -111,6 +115,33 @@ class ProviderRegistry:
                 target_langs=["zh", "en", "th", "ar"],
                 default=self.settings.default_provider == "zhipu",
             )
+        if self.settings.wenwen_api_key:
+            wenwen_openai = OpenAICompatibleProvider(
+                "wenwen",
+                self.settings.wenwen_api_key,
+                self.settings.wenwen_base_url,
+            )
+            wenwen_anthropic = AnthropicMessagesProvider(
+                "wenwen",
+                self.settings.wenwen_api_key,
+                self.settings.wenwen_base_url,
+            )
+            wenwen_models = [
+                ("claude-sonnet-4-6", "Claude Sonnet 4.6", wenwen_anthropic),
+                ("gpt-5", "GPT-5", wenwen_openai),
+                ("gemini-3-flash-preview", "Gemini 3 Flash Preview", wenwen_openai),
+            ]
+            self._providers["wenwen"] = RoutingProvider(
+                "wenwen", {name: sub for name, _, sub in wenwen_models}
+            )
+            for index, (name, label, _) in enumerate(wenwen_models):
+                self._add_model(
+                    provider="wenwen",
+                    name=name,
+                    label=label,
+                    target_langs=["zh", "en", "th", "ar"],
+                    default=self.settings.default_provider == "wenwen" and index == 0,
+                )
 
     def _validate_default_provider(self) -> None:
         if self.settings.default_provider == "doubao" and not self.settings.doubao_api_key:

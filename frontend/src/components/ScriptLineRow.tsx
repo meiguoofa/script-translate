@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils";
+
 type ScriptLineRowProps = {
   lineNo: number;
   rawLine: string;
@@ -7,25 +9,43 @@ type ScriptLineRowProps = {
 
 export function ScriptLineRow({ lineNo, rawLine, renderedLine, isDialogue }: ScriptLineRowProps) {
   if (!rawLine) {
-    return <div className="line-row empty-line" />;
+    return <div className="h-3" aria-hidden="true" />;
   }
 
-  if (!isDialogue || !renderedLine || renderedLine === rawLine) {
+  const lineNumber = (
+    <span className="select-none pt-0.5 text-right font-mono text-[11px] text-muted-foreground">
+      {String(lineNo).padStart(3, "0")}
+    </span>
+  );
+
+  if (!isDialogue) {
     return (
-      <div className={`line-row ${isDialogue ? "dialogue-line" : "scene-line"}`}>
-        <span className="line-number">{String(lineNo).padStart(3, "0")}</span>
-        <div className="line-content">{rawLine}</div>
+      <div className="grid grid-cols-[3rem_1fr] items-start gap-4 rounded-md px-3 py-2 transition-colors hover:bg-muted/40">
+        {lineNumber}
+        <div className="text-sm italic text-muted-foreground">{rawLine}</div>
+      </div>
+    );
+  }
+
+  if (!renderedLine || renderedLine === rawLine) {
+    return (
+      <div className="grid grid-cols-[3rem_1fr] items-start gap-4 rounded-md px-3 py-2 transition-colors hover:bg-muted/40">
+        {lineNumber}
+        <div className="text-sm leading-relaxed">{rawLine}</div>
       </div>
     );
   }
 
   const suffix = renderedLine.startsWith(rawLine) ? renderedLine.slice(rawLine.length) : "";
+
   return (
-    <div className="line-row dialogue-line">
-      <span className="line-number">{String(lineNo).padStart(3, "0")}</span>
-      <div className="line-content">
+    <div className={cn("grid grid-cols-[3rem_1fr] items-start gap-4 rounded-md px-3 py-2 transition-colors hover:bg-muted/40")}>
+      {lineNumber}
+      <div className="text-sm leading-relaxed">
         <span>{rawLine}</span>
-        <span className="translated-suffix">{suffix}</span>
+        {suffix ? (
+          <span className="ml-1 font-medium text-primary">{suffix}</span>
+        ) : null}
       </div>
     </div>
   );

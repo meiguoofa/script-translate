@@ -1,4 +1,12 @@
 import type { ModelOption } from "../api/types";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type ModelSelectorProps = {
   models: ModelOption[];
@@ -20,34 +28,48 @@ export function ModelSelector({ models, provider, model, onChange }: ModelSelect
   const activeModel = model || modelOptions[0]?.name || "";
 
   return (
-    <div className="field-grid model-grid">
-      <label>
-        <span>模型厂商</span>
-        <select
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="flex flex-col gap-1.5">
+        <Label>模型厂商</Label>
+        <Select
           value={activeProvider}
-          onChange={(event) => {
-            const nextProvider = event.target.value;
+          onValueChange={(nextProvider) => {
             const nextModel = grouped[nextProvider]?.[0]?.name ?? "";
             onChange(nextProvider, nextModel);
           }}
+          disabled={providerOptions.length === 0}
         >
-          {providerOptions.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>模型名称</span>
-        <select value={activeModel} onChange={(event) => onChange(activeProvider, event.target.value)}>
-          {modelOptions.map((item) => (
-            <option key={`${item.provider}-${item.name}`} value={item.name}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger>
+            <SelectValue placeholder="请选择厂商" />
+          </SelectTrigger>
+          <SelectContent>
+            {providerOptions.map((item) => (
+              <SelectItem key={item} value={item}>
+                {item}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>模型名称</Label>
+        <Select
+          value={activeModel}
+          onValueChange={(next) => onChange(activeProvider, next)}
+          disabled={modelOptions.length === 0}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="请选择模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {modelOptions.map((item) => (
+              <SelectItem key={`${item.provider}-${item.name}`} value={item.name}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

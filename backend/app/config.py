@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     doubao_api_key: str | None = None
     tongyi_api_key: str | None = None
     zhipu_api_key: str | None = None
+    wenwen_api_key: str | None = Field(default=None, alias="WENWEN-API-KEY")
 
     openai_base_url: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     doubao_models_raw: str | None = Field(default=None, alias="DOUBAO_MODELS")
     tongyi_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    wenwen_base_url: str = "https://api.wenwen-ai.com/v1"
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
