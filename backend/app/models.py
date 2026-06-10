@@ -95,3 +95,20 @@ class GeneratedDoc(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     version: Mapped["TranslationVersion"] = relationship(back_populates="generated_docs")
+
+
+class CleanedScriptJob(Base):
+    __tablename__ = "cleaned_script_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(String(32))
+    original_text: Mapped[str] = mapped_column(Text)
+    cleaned_text: Mapped[str] = mapped_column(Text)
+    line_count: Mapped[int] = mapped_column(Integer)
+    stripped_count: Mapped[int] = mapped_column(Integer)
+    output_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_filename: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

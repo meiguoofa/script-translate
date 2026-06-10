@@ -24,6 +24,9 @@ class Database:
                 return
 
             async with self.engine.begin() as connection:
+                from app.migrations import run_migrations
+
+                await run_migrations(connection)
                 await connection.run_sync(Base.metadata.create_all)
 
             self._initialized = True

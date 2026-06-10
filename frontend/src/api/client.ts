@@ -1,5 +1,8 @@
 import axios from "axios";
 import type {
+  CleanedScriptCreateResponse,
+  CleanedScriptDetail,
+  CleanedScriptSummary,
   ModelOption,
   ScriptCreateResponse,
   ScriptDetail,
@@ -51,4 +54,25 @@ export async function getTranslation(versionId: string) {
 
 export function getDownloadUrl(versionId: string) {
   return `/api/translations/${versionId}/download`;
+}
+
+export async function createCleanedScript(formData: FormData) {
+  const response = await client.post<CleanedScriptCreateResponse>("/cleaned-scripts", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+}
+
+export async function getCleanedScripts() {
+  const response = await client.get<CleanedScriptSummary[]>("/cleaned-scripts");
+  return response.data;
+}
+
+export async function getCleanedScript(id: string) {
+  const response = await client.get<CleanedScriptDetail>(`/cleaned-scripts/${id}`);
+  return response.data;
+}
+
+export function getCleanedScriptDownloadUrl(id: string) {
+  return `/api/cleaned-scripts/${id}/download`;
 }

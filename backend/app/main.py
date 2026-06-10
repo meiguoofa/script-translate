@@ -8,7 +8,7 @@ from sqlalchemy.engine import make_url
 from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
-from app.routers import downloads, health, model_catalog, scripts, translations
+from app.routers import cleaned_scripts, downloads, health, model_catalog, scripts, translations
 
 
 @dataclass(slots=True)
@@ -59,4 +59,5 @@ def create_app() -> FastAPI:
     app.include_router(scripts.router, prefix=settings.api_prefix)
     app.include_router(translations.router, prefix=settings.api_prefix)
     app.include_router(downloads.router, prefix=settings.api_prefix)
+    app.include_router(cleaned_scripts.router, prefix=settings.api_prefix)
     return app

@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -11,7 +10,8 @@ from app.models import Script, ScriptLine, TranslationVersion
 from app.schemas import ScriptCreateResponse, ScriptDetail, ScriptLineOut, ScriptSummary, TranslationVersionSummary
 from app.services.dialogue_extractor import extract_script_lines
 from app.services.lang_detect import detect_language
-from app.services.script_parser import parse_text_content, parse_uploaded_file
+from app.services.script_parser import parse_text_content
+from app.services.uploaded_documents import parse_saved_document, save_uploaded_document
 
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
@@ -35,19 +35,10 @@ async def create_script(
     raw_file_path: str | None = None
 
     if file:
-        uploads_path = settings.uploads_path / script_id
-        uploads_path.mkdir(parents=True, exist_ok=True)
-        destination = uploads_path / file.filename
-        destination.write_bytes(await file.read())
-        raw_text = parse_uploaded_file(destination)
-        raw_file_path = str(destination.relative_to(settings.storage_path))
-        suffix = Path(file.filename).suffix.lower()
-        if suffix == ".docx":
-            source_type = "upload_docx"
-        elif suffix == ".doc":
-            source_type = "upload_doc"
-        else:
-            source_type = "upload_txt"
+        saved_upload = await save_uploaded_document(file, script_id, settings)
+        raw_text = parse_saved_document(saved_upload.absolute_path)
+        raw_file_path = str(saved_upload.relative_path)
+        source_type = saved_upload.source_type
     else:
         raw_text = parse_text_content(raw_text or "")
 

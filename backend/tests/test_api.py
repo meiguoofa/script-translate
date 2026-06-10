@@ -2,6 +2,7 @@ import os
 import sys
 from importlib import import_module, reload
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from docx import Document
@@ -219,3 +220,100 @@ async def test_upload_translate_and_download_round_trip_with_real_doubao(tmp_pat
         assert download_response.headers["content-type"].startswith(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+
+
+@pytest.mark.asyncio
+async def test_cleaned_script_upload_history_download_and_migration_preserve_existing_data(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    clear_provider_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/app.db")
+    monkeypatch.setenv("STORAGE_ROOT", str(tmp_path / "storage"))
+    monkeypatch.setenv("DEFAULT_PROVIDER", "doubao")
+    monkeypatch.setenv("DOUBAO_API_KEY", "test-key")
+    monkeypatch.setenv("DOUBAO_MODELS", "doubao-seed-1-6-flash-250715")
+
+    create_app = load_create_app()
+    app = create_app()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        existing_files = {
+            "file": (
+                "original.docx",
+                build_docx_bytes(["艾米丽：hello"]),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        }
+        existing_response = await client.post("/api/scripts", files=existing_files, data={"title": "既有剧本"})
+        assert existing_response.status_code == 201
+
+        files = {
+            "file": (
+                "translated.docx",
+                build_docx_bytes(
+                    [
+                        "艾米丽（局促，低声）：hello(你好)",
+                        "△ 场景说明（不要删除）",
+                        "伊森: 原文对白 (里面有原始括号)(translation)",
+                    ]
+                ),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        }
+        response = await client.post("/api/cleaned-scripts", files=files, data={"title": "修订剧本"})
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["title"] == "修订剧本"
+        assert payload["line_count"] == 3
+        assert payload["stripped_count"] == 2
+        job_id = payload["id"]
+
+        history_response = await client.get("/api/cleaned-scripts")
+        assert history_response.status_code == 200
+        assert history_response.json()[0]["id"] == job_id
+
+        detail_response = await client.get(f"/api/cleaned-scripts/{job_id}")
+        assert detail_response.status_code == 200
+        assert detail_response.json()["cleaned_preview"] == [
+            "艾米丽（局促，低声）：hello",
+            "△ 场景说明（不要删除）",
+            "伊森: 原文对白 (里面有原始括号)",
+        ]
+
+        download_response = await client.get(f"/api/cleaned-scripts/{job_id}/download")
+        assert download_response.status_code == 200
+        assert download_response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        downloaded = Document(BytesIO(download_response.content))
+        assert [paragraph.text for paragraph in downloaded.paragraphs] == [
+            "艾米丽（局促，低声）：hello",
+            "△ 场景说明（不要删除）",
+            "伊森: 原文对白 (里面有原始括号)",
+        ]
+
+        scripts_response = await client.get("/api/scripts")
+        assert scripts_response.status_code == 200
+        assert scripts_response.json()[0]["title"] == "既有剧本"
+
+    import sqlite3
+
+    with sqlite3.connect(Path(tmp_path) / "app.db") as connection:
+        assert connection.execute("select count(*) from scripts").fetchone()[0] == 1
+        assert connection.execute("select count(*) from cleaned_script_jobs").fetchone()[0] == 1
+        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 1
+
+    app.state.db._initialized = False
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        assert (await client.get("/api/cleaned-scripts")).status_code == 200
+
+    with sqlite3.connect(Path(tmp_path) / "app.db") as connection:
+        assert connection.execute("select count(*) from scripts").fetchone()[0] == 1
+        assert connection.execute("select count(*) from cleaned_script_jobs").fetchone()[0] == 1
+        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 1

@@ -66,3 +66,19 @@ export type ScriptCreateResponse = {
   line_count: number;
   source_lang: string | null;
 };
+
+export type CleanedScriptCreateResponse = {
+  id: string;
+  title: string;
+  source_filename: string | null;
+  output_filename: string;
+  line_count: number;
+  stripped_count: number;
+  created_at: string;
+};
+
+export type CleanedScriptSummary = CleanedScriptCreateResponse;
+
+export type CleanedScriptDetail = CleanedScriptSummary & {
+  cleaned_preview: string[];
+};

@@ -1,14 +1,16 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { FileText, History, Languages, Settings } from "lucide-react";
+import { FileText, History, Languages, Settings, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/", label: "新建翻译", icon: FileText, end: true },
+  { to: "/clean", label: "清理译文", icon: Sparkles, end: false },
   { to: "/history", label: "历史记录", icon: History, end: false },
 ];
 
 function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/") return { title: "新建翻译", subtitle: "上传剧本、选择模型、启动翻译任务" };
+  if (pathname.startsWith("/clean")) return { title: "清理译文", subtitle: "上传已翻译文档，移除括号内译文并导出干净剧本" };
   if (pathname.startsWith("/history")) return { title: "历史记录", subtitle: "查看所有剧本及历史翻译版本" };
   if (pathname.startsWith("/scripts/")) return { title: "剧本详情", subtitle: scriptId ? `脚本 ${scriptId.slice(0, 8)}…` : "" };
   return { title: "", subtitle: "" };

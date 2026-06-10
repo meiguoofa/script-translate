@@ -81,3 +81,27 @@ class TranslationDetail(BaseModel):
     error_message: str | None
     created_at: datetime
     rendered_lines: list[str]
+
+
+class CleanedScriptCreateResponse(BaseModel):
+    id: str
+    title: str
+    source_filename: str | None
+    output_filename: str
+    line_count: int
+    stripped_count: int
+    created_at: datetime
+
+
+class CleanedScriptSummary(BaseModel):
+    id: str
+    title: str
+    source_filename: str | None
+    output_filename: str
+    line_count: int
+    stripped_count: int
+    created_at: datetime
+
+
+class CleanedScriptDetail(CleanedScriptSummary):
+    cleaned_preview: list[str]
