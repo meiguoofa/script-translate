@@ -29,6 +29,15 @@ def test_keep_scene_parenthetical_without_dialogue_separator():
     assert cleaned == "△ 场景说明（不要删除）"
 
 
+def test_keep_character_list_parentheticals_after_metadata_prefix():
+    line = "人物：西蒙·蒙斯普林（Simon Moonspring，白发黑袍狼王）、雷文（Raven，卷发年轻男子）"
+
+    cleaned, stripped = strip_translation_from_line(line)
+
+    assert stripped is False
+    assert cleaned == line
+
+
 def test_keep_inner_dialogue_parenthetical_and_strip_last_translation():
     cleaned, stripped = strip_translation_from_line("伊森: 原文对白 (里面有原始括号)(translation)")
 

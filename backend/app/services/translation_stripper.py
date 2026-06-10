@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+PROTECTED_PREFIXES = ("人物", "角色", "登场人物", "演员", "cast", "characters")
+
 
 @dataclass(slots=True)
 class StripResult:
@@ -13,6 +15,10 @@ def strip_translation_from_line(line: str) -> tuple[str, bool]:
     trailing = line[len(stripped_right) :]
     separator_index = max(stripped_right.rfind(":"), stripped_right.rfind("："))
     if separator_index == -1:
+        return line, False
+
+    prefix = stripped_right[:separator_index].strip().lower()
+    if prefix in PROTECTED_PREFIXES:
         return line, False
 
     if stripped_right.endswith(")"):
