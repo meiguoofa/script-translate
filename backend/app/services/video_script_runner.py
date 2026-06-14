@@ -173,7 +173,7 @@ async def run_video_script_job(db: Database, settings: Settings, job_id: str) ->
 
         await asyncio.sleep(interval)
 
-    # COMPLETED → 拉取 output_tos_path 下的剧本文本
+    # COMPLETED → 拉取 output_tos_path 下的所有剧本文本，按 Key 排序后拼接
     try:
         bucket, key_prefix = parse_tos_uri(snapshot["output_tos_path"])
         if bucket != tos.bucket:
@@ -184,10 +184,16 @@ async def run_video_script_job(db: Database, settings: Settings, job_id: str) ->
             raise RuntimeError(
                 f"在 {snapshot['output_tos_path']} 下未找到 .md/.txt 剧本文件，all_objects={[o['Key'] for o in all_objects]}"
             )
-        # 体积最大的优先，通常即剧本本体
-        main_key = text_objects[0]["Key"]
-        body = tos.download_object(main_key)
-        script_text = body.decode("utf-8", errors="replace")
+        parts: list[str] = []
+        for obj in text_objects:
+            body = tos.download_object(obj["Key"])
+            chunk = body.decode("utf-8", errors="replace")
+            episode_name = obj["Key"].rsplit("/", 1)[-1]
+            if len(text_objects) > 1:
+                parts.append(f"# {episode_name}\n\n{chunk.strip()}\n")
+            else:
+                parts.append(chunk)
+        script_text = "\n\n".join(parts)
     except Exception as exc:  # noqa: BLE001
         await _set_status(
             db,

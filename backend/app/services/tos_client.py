@@ -86,12 +86,15 @@ def parse_tos_uri(uri: str) -> tuple[str, str]:
 
 
 def filter_text_objects(items: Iterable[dict]) -> list[dict]:
-    """Pick text-script-like products: prefer .md / .txt / .markdown, sorted by size desc."""
+    """Pick text-script-like products: .md / .txt / .markdown, sorted by Key ascending.
+
+    LAS 短剧算子在多视频场景下会按 ep_001.md / ep_002.md 命名，按 Key 升序即可保证集顺序。
+    """
 
     text = [
         i
         for i in items
         if i["Key"].lower().endswith((".md", ".txt", ".markdown"))
     ]
-    text.sort(key=lambda x: x.get("Size", 0), reverse=True)
+    text.sort(key=lambda x: x["Key"])
     return text
