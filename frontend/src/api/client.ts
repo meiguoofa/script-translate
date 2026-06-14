@@ -1,19 +1,49 @@
 import axios from "axios";
+import { toast } from "sonner";
+import { clearPassphrase, getPassphrase } from "@/lib/passphrase";
 import type {
+  AccessVerifyResponse,
   CleanedScriptCreateResponse,
   CleanedScriptDetail,
   CleanedScriptSummary,
   ModelOption,
+  PromptTemplateOut,
   ScriptCreateResponse,
   ScriptDetail,
   ScriptSummary,
   TranslationDetail,
   TranslationVersionSummary,
+  VideoJobOut,
+  VideoJobSummary,
+  VideoUploadUrlResponse,
 } from "./types";
 
 const client = axios.create({
   baseURL: "/api",
 });
+
+client.interceptors.request.use((config) => {
+  const passphrase = getPassphrase();
+  if (passphrase) {
+    config.headers = config.headers ?? {};
+    (config.headers as Record<string, string>)["X-Access-Passphrase"] = passphrase;
+  }
+  return config;
+});
+
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      const url: string = error?.config?.url ?? "";
+      if (!url.includes("/access/verify")) {
+        clearPassphrase();
+        toast.error("访问密钥无效或已过期，请重新输入");
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export async function getModels() {
   const response = await client.get<ModelOption[]>("/models");
@@ -75,4 +105,59 @@ export async function getCleanedScript(id: string) {
 
 export function getCleanedScriptDownloadUrl(id: string) {
   return `/api/cleaned-scripts/${id}/download`;
+}
+
+export async function verifyPassphrase(passphrase: string) {
+  const response = await client.post<AccessVerifyResponse>("/access/verify", { passphrase });
+  return response.data;
+}
+
+export async function listPromptTemplates() {
+  const response = await client.get<PromptTemplateOut[]>("/prompt-templates");
+  return response.data;
+}
+
+export async function createPromptTemplate(payload: { name: string; content: string }) {
+  const response = await client.post<PromptTemplateOut>("/prompt-templates", payload);
+  return response.data;
+}
+
+export async function updatePromptTemplate(
+  id: string,
+  payload: { name?: string; content?: string }
+) {
+  const response = await client.put<PromptTemplateOut>(`/prompt-templates/${id}`, payload);
+  return response.data;
+}
+
+export type VideoUploadUrlInput = {
+  files: { filename: string; content_type: string }[];
+};
+
+export async function requestVideoUploadUrls(payload: VideoUploadUrlInput) {
+  const response = await client.post<VideoUploadUrlResponse>("/video-jobs/upload-url", payload);
+  return response.data;
+}
+
+export type VideoJobCreateInput = {
+  job_id: string;
+  title: string;
+  video_urls: string[];
+  original_filenames?: string[];
+  prompt_template_id: string;
+};
+
+export async function createVideoJob(payload: VideoJobCreateInput) {
+  const response = await client.post<VideoJobOut>("/video-jobs", payload);
+  return response.data;
+}
+
+export async function getVideoJob(jobId: string) {
+  const response = await client.get<VideoJobOut>(`/video-jobs/${jobId}`);
+  return response.data;
+}
+
+export async function listVideoJobs(params?: { limit?: number; offset?: number }) {
+  const response = await client.get<VideoJobSummary[]>("/video-jobs", { params });
+  return response.data;
 }

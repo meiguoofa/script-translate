@@ -112,3 +112,46 @@ class CleanedScriptJob(Base):
     output_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_filename: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VideoScriptJob(Base):
+    __tablename__ = "video_script_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    video_count: Mapped[int] = mapped_column(Integer, default=0)
+    video_urls_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_template_id: Mapped[str | None] = mapped_column(
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"), nullable=True
+    )
+    prompt_template_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    custom_script_prompt: Mapped[str] = mapped_column(Text)
+    output_tos_path: Mapped[str] = mapped_column(Text)
+    las_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_script_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_script_id: Mapped[str | None] = mapped_column(
+        ForeignKey("scripts.id", ondelete="SET NULL"), nullable=True
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

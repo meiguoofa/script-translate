@@ -4,8 +4,12 @@ import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { CleanScriptPage } from "./pages/CleanScriptPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { PromptTemplatesPage } from "./pages/PromptTemplatesPage";
 import { ScriptViewerPage } from "./pages/ScriptViewerPage";
 import { UploadPage } from "./pages/UploadPage";
+import { VideoJobDetailPage } from "./pages/VideoJobDetailPage";
+import { VideoJobHistoryPage } from "./pages/VideoJobHistoryPage";
+import { VideoRestorePage } from "./pages/VideoRestorePage";
 
 export default function App() {
   return (
@@ -14,6 +18,10 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<UploadPage />} />
           <Route path="/clean" element={<CleanScriptPage />} />
+          <Route path="/video-restore" element={<VideoRestorePage />} />
+          <Route path="/video-restore/history" element={<VideoJobHistoryPage />} />
+          <Route path="/video-restore/:jobId" element={<VideoJobDetailPage />} />
+          <Route path="/prompts" element={<PromptTemplatesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/scripts/:scriptId" element={<ScriptViewerPage />} />
         </Route>

@@ -105,3 +105,94 @@ class CleanedScriptSummary(BaseModel):
 
 class CleanedScriptDetail(CleanedScriptSummary):
     cleaned_preview: list[str]
+
+
+class PromptTemplateOut(BaseModel):
+    id: str
+    name: str
+    content: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PromptTemplateCreateRequest(BaseModel):
+    name: str
+    content: str
+
+
+class PromptTemplateUpdateRequest(BaseModel):
+    name: str | None = None
+    content: str | None = None
+
+
+class VideoUploadFileSpec(BaseModel):
+    filename: str
+    content_type: str | None = None
+
+
+class VideoUploadUrlRequest(BaseModel):
+    files: list[VideoUploadFileSpec]
+
+
+class VideoUploadEntry(BaseModel):
+    filename: str
+    presigned_url: str
+    public_url: str
+    tos_uri: str
+    key: str
+
+
+class VideoUploadUrlResponse(BaseModel):
+    job_id: str
+    expires_in: int
+    entries: list[VideoUploadEntry]
+
+
+class VideoJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    video_urls: list[str]
+    original_filenames: list[str] | None = None
+    prompt_template_id: str
+
+
+class VideoJobOut(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    video_urls: list[str]
+    original_filenames: list[str] | None
+    prompt_template_id: str | None
+    prompt_template_name: str | None
+    output_tos_path: str
+    las_task_id: str | None
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    generated_script_id: str | None
+    generated_script_preview: list[str] | None = None
+    submitted_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VideoJobSummary(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    prompt_template_name: str | None
+    status: str
+    generated_script_id: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccessVerifyRequest(BaseModel):
+    passphrase: str
+
+
+class AccessVerifyResponse(BaseModel):
+    ok: bool

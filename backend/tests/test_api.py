@@ -304,7 +304,7 @@ async def test_cleaned_script_upload_history_download_and_migration_preserve_exi
     with sqlite3.connect(Path(tmp_path) / "app.db") as connection:
         assert connection.execute("select count(*) from scripts").fetchone()[0] == 1
         assert connection.execute("select count(*) from cleaned_script_jobs").fetchone()[0] == 1
-        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 1
+        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 3
 
     app.state.db._initialized = False
     async with AsyncClient(
@@ -316,4 +316,4 @@ async def test_cleaned_script_upload_history_download_and_migration_preserve_exi
     with sqlite3.connect(Path(tmp_path) / "app.db") as connection:
         assert connection.execute("select count(*) from scripts").fetchone()[0] == 1
         assert connection.execute("select count(*) from cleaned_script_jobs").fetchone()[0] == 1
-        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 1
+        assert connection.execute("select count(*) from schema_migrations").fetchone()[0] == 3

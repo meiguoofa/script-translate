@@ -8,9 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.deps import get_session, get_settings
 from app.models import Script, ScriptLine, TranslationVersion
 from app.schemas import ScriptCreateResponse, ScriptDetail, ScriptLineOut, ScriptSummary, TranslationVersionSummary
-from app.services.dialogue_extractor import extract_script_lines
-from app.services.lang_detect import detect_language
-from app.services.script_parser import parse_text_content
+from app.services.script_ingestor import ingest_text_into_script
 from app.services.uploaded_documents import parse_saved_document, save_uploaded_document
 
 
@@ -39,41 +37,21 @@ async def create_script(
         raw_text = parse_saved_document(saved_upload.absolute_path)
         raw_file_path = str(saved_upload.relative_path)
         source_type = saved_upload.source_type
-    else:
-        raw_text = parse_text_content(raw_text or "")
 
-    normalized_text = parse_text_content(raw_text)
-    extracted_lines = extract_script_lines(normalized_text)
-    script = Script(
-        id=script_id,
+    ingested = await ingest_text_into_script(
+        session,
         title=title,
-        source_lang=detect_language(normalized_text),
+        raw_text=raw_text or "",
         source_type=source_type,
-        raw_text=normalized_text,
         raw_file_path=raw_file_path,
+        script_id=script_id,
     )
-    session.add(script)
-
-    for line in extracted_lines:
-        session.add(
-            ScriptLine(
-                id=str(uuid.uuid4()),
-                script_id=script_id,
-                line_no=line.line_no,
-                raw_line=line.raw_line,
-                speaker=line.speaker,
-                parenthetical=line.parenthetical,
-                dialogue=line.dialogue,
-                is_dialogue=line.is_dialogue,
-            )
-        )
-
     await session.commit()
     return ScriptCreateResponse(
-        script_id=script.id,
-        title=script.title,
-        line_count=len(extracted_lines),
-        source_lang=script.source_lang,
+        script_id=ingested.script_id,
+        title=ingested.title,
+        line_count=ingested.line_count,
+        source_lang=ingested.source_lang,
     )
 
 

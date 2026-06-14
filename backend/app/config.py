@@ -30,6 +30,24 @@ class Settings(BaseSettings):
     zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     wenwen_base_url: str = "https://api.wenwen-ai.com/v1"
 
+    access_passphrase: str | None = None
+
+    las_api_key: str | None = None
+    las_base_url: str = "https://operator.las.cn-beijing.volces.com"
+    las_operator_id: str = "las_short_drama_script_gen"
+    las_operator_version: str = "v1"
+    las_poll_interval_seconds: int = 10
+    las_poll_timeout_seconds: int = 10800
+
+    tos_access_key_id: str | None = None
+    tos_secret_access_key: str | None = None
+    tos_bucket: str = "test-short-drama"
+    tos_region: str = "cn-beijing"
+    tos_s3_endpoint: str = "https://tos-s3-cn-beijing.volces.com"
+    tos_public_endpoint: str = "tos-cn-beijing.volces.com"
+    tos_output_prefix: str = "output"
+    tos_upload_prefix: str = "uploads"
+
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     model_config = SettingsConfigDict(
