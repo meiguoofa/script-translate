@@ -1,6 +1,18 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer
+
+
+def _to_utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+UTCDatetime = Annotated[datetime, PlainSerializer(_to_utc_iso, return_type=str | None)]
 
 
 class ModelOption(BaseModel):
@@ -33,7 +45,7 @@ class ScriptSummary(BaseModel):
     title: str
     source_lang: str | None
     source_type: str
-    created_at: datetime
+    created_at: UTCDatetime
     version_count: int
 
 
@@ -42,7 +54,7 @@ class ScriptDetail(BaseModel):
     title: str
     source_lang: str | None
     source_type: str
-    created_at: datetime
+    created_at: UTCDatetime
     lines: list[ScriptLineOut]
 
 
@@ -63,7 +75,7 @@ class TranslationVersionSummary(BaseModel):
     model_provider: str
     model_name: str
     status: str
-    created_at: datetime
+    created_at: UTCDatetime
     error_message: str | None
 
 
@@ -79,7 +91,7 @@ class TranslationDetail(BaseModel):
     cost: float | None
     duration_ms: int | None
     error_message: str | None
-    created_at: datetime
+    created_at: UTCDatetime
     rendered_lines: list[str]
 
 
@@ -90,7 +102,7 @@ class CleanedScriptCreateResponse(BaseModel):
     output_filename: str
     line_count: int
     stripped_count: int
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class CleanedScriptSummary(BaseModel):
@@ -100,7 +112,7 @@ class CleanedScriptSummary(BaseModel):
     output_filename: str
     line_count: int
     stripped_count: int
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class CleanedScriptDetail(CleanedScriptSummary):
@@ -112,8 +124,8 @@ class PromptTemplateOut(BaseModel):
     name: str
     content: str
     is_default: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class PromptTemplateCreateRequest(BaseModel):
@@ -172,10 +184,10 @@ class VideoJobOut(BaseModel):
     error_message: str | None
     generated_script_id: str | None
     generated_script_preview: list[str] | None = None
-    submitted_at: datetime | None
-    completed_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class VideoJobSummary(BaseModel):
@@ -186,8 +198,8 @@ class VideoJobSummary(BaseModel):
     status: str
     generated_script_id: str | None
     error_message: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class AccessVerifyRequest(BaseModel):
