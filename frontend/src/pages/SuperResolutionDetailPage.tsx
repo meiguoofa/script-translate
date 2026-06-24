@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Download, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, Download, DownloadCloud, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { getSuperResJob } from "@/api/client";
 import type { SuperResItemStatus, SuperResJobOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +80,24 @@ export function SuperResolutionDetailPage() {
 
   const badge = JOB_BADGE[job.status];
   const isTerminal = job.status === "completed" || job.status === "failed";
+  const succeededItems = job.items.filter((it) => it.status === "succeeded" && it.output_public_url);
+
+  async function downloadAll() {
+    for (const item of succeededItems) {
+      if (!item.output_public_url) continue;
+      const a = document.createElement("a");
+      a.href = item.output_public_url;
+      // 用原文件名 + 索引前缀，避免重名
+      a.download = `${String(item.index + 1).padStart(2, "0")}-${item.filename}`;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // 浏览器对快速连续触发的下载可能合并/吞掉，间隔 350ms 保险
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -108,6 +126,12 @@ export function SuperResolutionDetailPage() {
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <RefreshCw className="h-3 w-3" /> 自动刷新
             </span>
+          ) : null}
+          {succeededItems.length > 1 ? (
+            <Button size="sm" variant="secondary" onClick={downloadAll}>
+              <DownloadCloud className="mr-1 h-4 w-4" />
+              下载全部（{succeededItems.length}）
+            </Button>
           ) : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">

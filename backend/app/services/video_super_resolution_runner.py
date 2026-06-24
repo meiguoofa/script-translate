@@ -204,9 +204,13 @@ async def run_video_super_resolution_job(
         submitted_at=datetime.now(timezone.utc),
     )
 
-    await asyncio.gather(
-        *(
-            _run_item(
+    # 阿里云 VIAPI SuperResolveVideo 接口 QPS=2，并发上限收到 2，
+    # 避免 submit/poll 阶段瞬时触发 Throttling。
+    sem = asyncio.Semaphore(2)
+
+    async def _bounded(idx: int) -> None:
+        async with sem:
+            await _run_item(
                 db,
                 job_id,
                 viapi,
@@ -218,9 +222,8 @@ async def run_video_super_resolution_job(
                 settings.viapi_poll_interval_seconds,
                 settings.viapi_poll_timeout_seconds,
             )
-            for idx in range(len(items))
-        )
-    )
+
+    await asyncio.gather(*(_bounded(idx) for idx in range(len(items))))
 
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")
