@@ -28,6 +28,8 @@ ALLOWED_ORIGINS = [
     "http://localhost:8900",
     "https://localhost:8900",
     # 生产域名（如不同请编辑此列表后再跑一次）
+    "http://45.78.235.74:8900",
+    "https://45.78.235.74:8900",
     "https://xz-script-translate.local",
 ]
 
