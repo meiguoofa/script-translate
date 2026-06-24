@@ -11,6 +11,9 @@ import type {
   ScriptCreateResponse,
   ScriptDetail,
   ScriptSummary,
+  SuperResJobOut,
+  SuperResJobSummary,
+  SuperResUploadUrlResponse,
   TranslationDetail,
   TranslationVersionSummary,
   VideoJobOut,
@@ -159,5 +162,49 @@ export async function getVideoJob(jobId: string) {
 
 export async function listVideoJobs(params?: { limit?: number; offset?: number }) {
   const response = await client.get<VideoJobSummary[]>("/video-jobs", { params });
+  return response.data;
+}
+
+// ===== 视频超分辨 =====
+
+export type SuperResUploadUrlInput = {
+  files: { filename: string; content_type: string }[];
+};
+
+export async function requestSuperResUploadUrls(payload: SuperResUploadUrlInput) {
+  const response = await client.post<SuperResUploadUrlResponse>(
+    "/super-resolution/upload-url",
+    payload
+  );
+  return response.data;
+}
+
+export type SuperResJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  key: string;
+};
+
+export type SuperResJobCreateInput = {
+  job_id: string;
+  title: string;
+  bit_rate: number;
+  items: SuperResJobItemInput[];
+  original_filenames?: string[];
+};
+
+export async function createSuperResJob(payload: SuperResJobCreateInput) {
+  const response = await client.post<SuperResJobOut>("/super-resolution", payload);
+  return response.data;
+}
+
+export async function getSuperResJob(jobId: string) {
+  const response = await client.get<SuperResJobOut>(`/super-resolution/${jobId}`);
+  return response.data;
+}
+
+export async function listSuperResJobs(params?: { limit?: number; offset?: number }) {
+  const response = await client.get<SuperResJobSummary[]>("/super-resolution", { params });
   return response.data;
 }

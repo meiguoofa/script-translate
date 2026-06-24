@@ -149,3 +149,69 @@ export type VideoJobSummary = {
   created_at: string;
   updated_at: string;
 };
+
+// ===== 视频超分辨 =====
+
+export type SuperResUploadEntry = {
+  filename: string;
+  presigned_url: string;
+  public_url: string;
+  oss_uri: string;
+  key: string;
+};
+
+export type SuperResUploadUrlResponse = {
+  job_id: string;
+  expires_in: number;
+  entries: SuperResUploadEntry[];
+};
+
+export type SuperResItemStatus = "pending" | "running" | "succeeded" | "failed";
+
+export type SuperResJobStatus = "pending" | "running" | "completed" | "failed";
+
+export type SuperResJobItemOut = {
+  index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_public_url: string;
+  viapi_job_id: string | null;
+  viapi_status: string | null;
+  raw_output_url: string | null;
+  output_oss_uri: string | null;
+  output_public_url: string | null;
+  status: SuperResItemStatus;
+  error: string | null;
+};
+
+export type SuperResJobOut = {
+  id: string;
+  title: string;
+  video_count: number;
+  bit_rate: number;
+  items: SuperResJobItemOut[];
+  original_filenames: string[] | null;
+  output_oss_prefix: string;
+  status: SuperResJobStatus;
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SuperResJobSummary = {
+  id: string;
+  title: string;
+  video_count: number;
+  bit_rate: number;
+  status: SuperResJobStatus;
+  succeeded_count: number;
+  failed_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -2,7 +2,7 @@ from sqlalchemy import Column, DateTime, MetaData, String, Table, func, inspect,
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db import Base
-from app.models import CleanedScriptJob, PromptTemplate, VideoScriptJob
+from app.models import CleanedScriptJob, PromptTemplate, VideoScriptJob, VideoSuperResolutionJob
 from app.services._default_las_prompt import (
     DEFAULT_LAS_PROMPT_CONTENT,
     DEFAULT_LAS_PROMPT_ID,
@@ -13,6 +13,7 @@ SCHEMA_MIGRATIONS_TABLE = "schema_migrations"
 CREATE_CLEANED_SCRIPT_JOBS_VERSION = "20260610_001_create_cleaned_script_jobs"
 CREATE_PROMPT_TEMPLATES_VERSION = "20260614_001_create_prompt_templates"
 CREATE_VIDEO_SCRIPT_JOBS_VERSION = "20260614_002_create_video_script_jobs"
+CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION = "20260624_001_create_video_super_resolution_jobs"
 
 
 metadata = MetaData()
@@ -48,6 +49,12 @@ async def run_migrations(connection: AsyncConnection) -> None:
             schema_migrations.insert().values(version=CREATE_VIDEO_SCRIPT_JOBS_VERSION)
         )
 
+    if CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION not in applied:
+        await connection.run_sync(_create_video_super_resolution_jobs)
+        await connection.execute(
+            schema_migrations.insert().values(version=CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION)
+        )
+
     await _seed_default_prompt(connection)
 
 
@@ -70,6 +77,13 @@ def _create_video_script_jobs(sync_connection) -> None:
     if VideoScriptJob.__tablename__ in inspector.get_table_names():
         return
     VideoScriptJob.__table__.create(sync_connection, checkfirst=True)
+
+
+def _create_video_super_resolution_jobs(sync_connection) -> None:
+    inspector = inspect(sync_connection)
+    if VideoSuperResolutionJob.__tablename__ in inspector.get_table_names():
+        return
+    VideoSuperResolutionJob.__table__.create(sync_connection, checkfirst=True)
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

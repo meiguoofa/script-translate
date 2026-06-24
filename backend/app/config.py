@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     tos_output_prefix: str = "output"
     tos_upload_prefix: str = "uploads"
 
+    aliyun_access_key_id: str | None = Field(default=None, alias="ALIBABA_CLOUD_ACCESS_KEY_ID")
+    aliyun_access_key_secret: str | None = Field(
+        default=None, alias="ALIBABA_CLOUD_ACCESS_KEY_SECRET"
+    )
+    aliyun_oss_endpoint: str = "oss-cn-shanghai.aliyuncs.com"
+    aliyun_oss_bucket: str = "xzdl-video-super-resolution"
+    aliyun_oss_region: str = "cn-shanghai"
+    aliyun_viapi_endpoint: str = "videoenhan.cn-shanghai.aliyuncs.com"
+    viapi_poll_interval_seconds: int = 10
+    viapi_poll_timeout_seconds: int = 10800
+    oss_super_res_upload_prefix: str = "super-resolution-input"
+    oss_super_res_output_prefix: str = "super-resolution-output"
+
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     model_config = SettingsConfigDict(

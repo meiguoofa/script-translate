@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,6 +9,8 @@ from sqlalchemy.engine import make_url
 from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 from app.routers import (
     access,
     cleaned_scripts,
@@ -18,6 +21,7 @@ from app.routers import (
     scripts,
     translations,
     video_jobs,
+    video_super_resolution,
 )
 
 
@@ -73,4 +77,5 @@ def create_app() -> FastAPI:
     app.include_router(access.router, prefix=settings.api_prefix)
     app.include_router(prompt_templates.router, prefix=settings.api_prefix)
     app.include_router(video_jobs.router, prefix=settings.api_prefix)
+    app.include_router(video_super_resolution.router, prefix=settings.api_prefix)
     return app

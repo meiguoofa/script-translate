@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer
 
 
 def _to_utc_iso(value: datetime | None) -> str | None:
@@ -208,3 +208,90 @@ class AccessVerifyRequest(BaseModel):
 
 class AccessVerifyResponse(BaseModel):
     ok: bool
+
+
+# ===== 视频超分辨 =====
+
+
+class SuperResUploadFileSpec(BaseModel):
+    filename: str
+    content_type: str | None = None
+
+
+class SuperResUploadUrlRequest(BaseModel):
+    files: list[SuperResUploadFileSpec]
+
+
+class SuperResUploadEntry(BaseModel):
+    filename: str
+    presigned_url: str
+    public_url: str
+    oss_uri: str
+    key: str
+
+
+class SuperResUploadUrlResponse(BaseModel):
+    job_id: str
+    expires_in: int
+    entries: list[SuperResUploadEntry]
+
+
+class SuperResJobItemSpec(BaseModel):
+    filename: str
+    oss_uri: str
+    public_url: str
+    key: str
+
+
+class SuperResJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    bit_rate: int = Field(default=5, ge=1, le=20)
+    items: list[SuperResJobItemSpec]
+    original_filenames: list[str] | None = None
+
+
+class SuperResJobItemOut(BaseModel):
+    index: int
+    filename: str
+    input_oss_uri: str
+    input_public_url: str
+    viapi_job_id: str | None
+    viapi_status: str | None
+    raw_output_url: str | None
+    output_oss_uri: str | None
+    output_public_url: str | None
+    status: str
+    error: str | None
+
+
+class SuperResJobOut(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    bit_rate: int
+    items: list[SuperResJobItemOut]
+    original_filenames: list[str] | None
+    output_oss_prefix: str
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class SuperResJobSummary(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    bit_rate: int
+    status: str
+    succeeded_count: int
+    failed_count: int
+    error_message: str | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime

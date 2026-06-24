@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { FileText, Film, History, Languages, Settings, Sparkles, Wand2 } from "lucide-react";
+import { FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { to: "/clean", label: "清理译文", icon: Sparkles, end: false },
   { to: "/video-restore", label: "视频还原剧本", icon: Film, end: true },
   { to: "/video-restore/history", label: "视频任务历史", icon: History, end: false },
+  { to: "/super-resolution", label: "视频超分辨", icon: Zap, end: true },
+  { to: "/super-resolution/history", label: "超分辨历史", icon: History, end: false },
   { to: "/prompts", label: "提示词管理", icon: Wand2, end: false },
   { to: "/history", label: "翻译历史", icon: History, end: false },
 ];
@@ -17,6 +19,9 @@ function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/video-restore") return { title: "视频还原剧本", subtitle: "上传整集短剧视频，自动还原成可翻译的剧本" };
   if (pathname === "/video-restore/history") return { title: "视频任务历史", subtitle: "查看所有视频还原任务" };
   if (pathname.startsWith("/video-restore/")) return { title: "视频任务详情", subtitle: "查看 LAS 还原进度并启动翻译" };
+  if (pathname === "/super-resolution") return { title: "视频超分辨", subtitle: "上传视频，调用阿里云 VIAPI 超分辨增强" };
+  if (pathname === "/super-resolution/history") return { title: "超分辨历史", subtitle: "查看所有视频超分辨任务" };
+  if (pathname.startsWith("/super-resolution/")) return { title: "超分辨任务详情", subtitle: "查看处理进度并下载结果" };
   if (pathname.startsWith("/prompts")) return { title: "提示词管理", subtitle: "维护视频还原使用的提示词" };
   if (pathname.startsWith("/history")) return { title: "翻译历史", subtitle: "查看所有剧本及历史翻译版本" };
   if (pathname.startsWith("/scripts/")) return { title: "剧本详情", subtitle: scriptId ? `脚本 ${scriptId.slice(0, 8)}…` : "" };
