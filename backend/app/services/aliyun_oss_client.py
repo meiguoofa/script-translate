@@ -8,8 +8,12 @@ from urllib.parse import quote
 
 import httpx
 import oss2
+import oss2.defaults
 
 from app.config import Settings
+
+# 把 OSS SDK 默认 3 次重试拉高，国内→上海 OSS 偶发 RemoteDisconnected，需要更耐心。
+oss2.defaults.request_retries = 10
 
 logger = logging.getLogger("aliyun_oss_client")
 
@@ -36,6 +40,7 @@ class AliyunOSSClient:
             self._auth,
             f"https://{settings.aliyun_oss_endpoint}",
             settings.aliyun_oss_bucket,
+            connect_timeout=300,
         )
 
     @property
@@ -106,7 +111,7 @@ class AliyunOSSClient:
                 headers=headers,
                 multipart_threshold=10 * 1024 * 1024,
                 part_size=5 * 1024 * 1024,
-                num_threads=4,
+                num_threads=1,
             )
             logger.info(
                 "uploaded → oss://%s/%s (%d bytes)", self.bucket_name, key, total
