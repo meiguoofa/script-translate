@@ -20,6 +20,15 @@ from app.schemas import (
 from app.services.aliyun_oss_client import AliyunOSSClient
 from app.services.video_super_resolution_runner import run_video_super_resolution_job
 
+RETRY_FIELDS = (
+    "viapi_job_id",
+    "viapi_status",
+    "raw_output_url",
+    "output_oss_uri",
+    "output_public_url",
+    "error",
+)
+
 
 router = APIRouter(prefix="/super-resolution", tags=["super-resolution"])
 
@@ -228,6 +237,51 @@ async def get_super_resolution_job(
     job = await session.get(VideoSuperResolutionJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="任务不存在")
+    return _job_to_out(job)
+
+
+@router.post(
+    "/{job_id}/retry",
+    response_model=SuperResJobOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def retry_failed_items(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
+) -> SuperResJobOut:
+    """重试 job 中 status=failed 的 item。succeeded 的保留不动。"""
+
+    job = await session.get(VideoSuperResolutionJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    items: list[dict] = json.loads(job.items_json or "[]")
+    failed_indices = [i for i, it in enumerate(items) if it.get("status") == "failed"]
+    if not failed_indices:
+        raise HTTPException(status_code=400, detail="没有可重试的失败项")
+
+    for idx in failed_indices:
+        items[idx]["status"] = "pending"
+        for f in RETRY_FIELDS:
+            items[idx][f] = None
+    job.items_json = json.dumps(items, ensure_ascii=False)
+    job.status = "running"
+    job.error_message = None
+    job.completed_at = None
+    await session.commit()
+    await session.refresh(job)
+
+    state = request.app.state
+
+    async def _runner() -> None:
+        await run_video_super_resolution_job(
+            state.db, state.settings, job.id, only_indices=failed_indices
+        )
+
+    background_tasks.add_task(_runner)
     return _job_to_out(job)
 
 

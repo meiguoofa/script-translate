@@ -167,9 +167,16 @@ def _wait_and_upload_sync(
 
 
 async def run_video_super_resolution_job(
-    db: Database, settings: Settings, job_id: str
+    db: Database,
+    settings: Settings,
+    job_id: str,
+    *,
+    only_indices: list[int] | None = None,
 ) -> None:
-    """Top-level background task: for each item, call VIAPI SuperResolveVideo and re-upload."""
+    """Top-level background task: for each item, call VIAPI SuperResolveVideo and re-upload.
+
+    only_indices: 只跑指定 index 的 item（用于重试失败项）。None = 跑全部。
+    """
 
     snapshot = await _load_snapshot(db, job_id)
     if snapshot is None:
@@ -196,11 +203,16 @@ async def run_video_super_resolution_job(
     output_prefix_uri = snapshot["output_oss_prefix"].rstrip("/")
     output_prefix_key = output_prefix_uri.split("/", 3)[3] if output_prefix_uri.startswith("oss://") else output_prefix_uri
 
+    indices = only_indices if only_indices is not None else list(range(len(items)))
+    if not indices:
+        logger.warning("super-res job %s 无可处理的 item", job_id)
+        return
+
     await _set_job_fields(
         db,
         job_id,
         status="running",
-        progress_message=f"开始处理 {len(items)} 个视频",
+        progress_message=f"开始处理 {len(indices)} 个视频",
         submitted_at=datetime.now(timezone.utc),
     )
 
@@ -223,7 +235,7 @@ async def run_video_super_resolution_job(
                 settings.viapi_poll_timeout_seconds,
             )
 
-    await asyncio.gather(*(_bounded(idx) for idx in range(len(items))))
+    await asyncio.gather(*(_bounded(idx) for idx in indices))
 
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")

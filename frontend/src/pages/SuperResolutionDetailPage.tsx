@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Download, DownloadCloud, Loader2, RefreshCw, XCircle } from "lucide-react";
-import { getSuperResJob } from "@/api/client";
+import { CheckCircle2, Download, DownloadCloud, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
+import { getSuperResJob, retrySuperResJob } from "@/api/client";
 import type { SuperResItemStatus, SuperResJobOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "@/components/ui/sonner";
 
 const JOB_BADGE: Record<
   SuperResJobOut["status"],
@@ -32,7 +33,9 @@ export function SuperResolutionDetailPage() {
   const navigate = useNavigate();
   const [job, setJob] = useState<SuperResJobOut | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const timer = useRef<number | null>(null);
+  const pollRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
@@ -54,6 +57,7 @@ export function SuperResolutionDetailPage() {
       }
     }
 
+    pollRef.current = poll;
     poll();
     return () => {
       cancelled = true;
@@ -87,15 +91,35 @@ export function SuperResolutionDetailPage() {
       if (!item.output_public_url) continue;
       const a = document.createElement("a");
       a.href = item.output_public_url;
-      // 用原文件名 + 索引前缀，避免重名
       a.download = `${String(item.index + 1).padStart(2, "0")}-${item.filename}`;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // 浏览器对快速连续触发的下载可能合并/吞掉，间隔 350ms 保险
       await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+
+  async function retryFailed() {
+    if (!job) return;
+    setRetrying(true);
+    try {
+      await retrySuperResJob(job.id);
+      toast.success("已重新提交失败项");
+      const data = await getSuperResJob(job.id);
+      setJob(data);
+      // 轮询在 terminal 时已停（useEffect 内的 setTimeout 链断了）；
+      // 调用 pollRef 重新启动轮询。
+      if (data.status !== "completed" && data.status !== "failed") {
+        if (timer.current) window.clearTimeout(timer.current);
+        pollRef.current?.();
+      }
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || "重试失败";
+      toast.error(detail);
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -126,6 +150,21 @@ export function SuperResolutionDetailPage() {
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <RefreshCw className="h-3 w-3" /> 自动刷新
             </span>
+          ) : null}
+          {job.failed_count > 0 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={retryFailed}
+              disabled={retrying || !isTerminal}
+            >
+              {retrying ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1 h-4 w-4" />
+              )}
+              重试失败项（{job.failed_count}）
+            </Button>
           ) : null}
           {succeededItems.length > 1 ? (
             <Button size="sm" variant="secondary" onClick={downloadAll}>

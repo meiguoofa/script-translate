@@ -204,6 +204,11 @@ export async function getSuperResJob(jobId: string) {
   return response.data;
 }
 
+export async function retrySuperResJob(jobId: string) {
+  const response = await client.post<SuperResJobOut>(`/super-resolution/${jobId}/retry`);
+  return response.data;
+}
+
 export async function listSuperResJobs(params?: { limit?: number; offset?: number }) {
   const response = await client.get<SuperResJobSummary[]>("/super-resolution", { params });
   return response.data;
