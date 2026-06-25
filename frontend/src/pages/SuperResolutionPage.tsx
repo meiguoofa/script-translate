@@ -23,7 +23,7 @@ export function SuperResolutionPage() {
   const [verified, setVerified] = useState<boolean>(Boolean(getPassphrase()));
   const [title, setTitle] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [bitRate, setBitRate] = useState<number>(5);
+  const [bitRate, setBitRate] = useState<number>(10);
   const [progress, setProgress] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -149,7 +149,7 @@ export function SuperResolutionPage() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                默认 5。所有视频共用同一个码率。
+                默认 10。所有视频共用同一个码率。
               </p>
             </div>
 

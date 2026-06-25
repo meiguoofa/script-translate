@@ -246,7 +246,7 @@ class SuperResJobItemSpec(BaseModel):
 class SuperResJobCreateRequest(BaseModel):
     job_id: str
     title: str
-    bit_rate: int = Field(default=5, ge=1, le=20)
+    bit_rate: int = Field(default=10, ge=1, le=20)
     items: list[SuperResJobItemSpec]
     original_filenames: list[str] | None = None
 
