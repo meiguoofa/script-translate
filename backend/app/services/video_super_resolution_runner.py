@@ -10,6 +10,7 @@ from app.config import Settings
 from app.db import Database
 from app.models import VideoSuperResolutionJob
 from app.services.aliyun_oss_client import AliyunOSSClient
+from app.services.tos_fetch_client import TOSFetchClient
 from app.services.viapi_client import VIAPIClient
 
 logger = logging.getLogger("video_super_resolution_runner")
@@ -83,7 +84,7 @@ async def _run_item(
     db: Database,
     job_id: str,
     viapi: VIAPIClient,
-    oss: AliyunOSSClient,
+    tos: TOSFetchClient,
     output_prefix_key: str,
     items: list[dict],
     index: int,
@@ -111,12 +112,12 @@ async def _run_item(
     item["viapi_status"] = "PROCESSING"
     await _persist_items(db, job_id, items)
 
-    # 阶段 2：轮询直到终态，然后转存到我们自己的 OSS。
+    # 阶段 2：轮询 VIAPI 到终态，然后用 TOS fetch_object 把结果 URL 抓到 TOS 桶。
     try:
         result = await asyncio.to_thread(
-            _wait_and_upload_sync,
+            _wait_and_fetch_sync,
             viapi,
-            oss,
+            tos,
             submit.job_id,
             output_prefix_key,
             index,
@@ -125,7 +126,7 @@ async def _run_item(
             poll_timeout_seconds,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("super-resolve poll/upload %s/%d failed", job_id, index)
+        logger.exception("super-resolve poll/fetch %s/%d failed", job_id, index)
         item["status"] = "failed"
         item["error"] = str(exc)
         await _persist_items(db, job_id, items)
@@ -140,9 +141,9 @@ async def _run_item(
     await _persist_items(db, job_id, items)
 
 
-def _wait_and_upload_sync(
+def _wait_and_fetch_sync(
     viapi: VIAPIClient,
-    oss: AliyunOSSClient,
+    tos: TOSFetchClient,
     viapi_job_id: str,
     output_prefix_key: str,
     index: int,
@@ -156,13 +157,13 @@ def _wait_and_upload_sync(
         timeout_seconds=poll_timeout_seconds,
     )
     output_key = _build_output_key(output_prefix_key, index, filename)
-    oss.put_object_from_url(output_key, final.output_video_url, content_type="video/mp4")
+    tos_uri, public_url, _size = tos.fetch_from_url(output_key, final.output_video_url)
     return {
         "viapi_status": final.status,
         "raw_output_url": final.output_video_url,
         "output_key": output_key,
-        "output_oss_uri": oss.oss_uri(output_key),
-        "output_public_url": oss.public_url(output_key),
+        "output_oss_uri": tos_uri,
+        "output_public_url": public_url,
     }
 
 
@@ -184,7 +185,7 @@ async def run_video_super_resolution_job(
         return
 
     try:
-        oss = AliyunOSSClient(settings)
+        tos = TOSFetchClient(settings)
         viapi = VIAPIClient(settings)
     except RuntimeError as exc:
         await _set_job_fields(
@@ -199,9 +200,13 @@ async def run_video_super_resolution_job(
     items: list[dict] = snapshot["items"]
     bit_rate: int = snapshot["bit_rate"]
     # output_oss_prefix 形如 "oss://xzdl-video-super-resolution/super-resolution-output/{job_id}/"
-    # _process_one_sync 内拼 key 时只关心 bucket 内的相对路径，所以这里抽 key 部分。
+    # 我们实际把输出存到 TOS 桶的同名子路径，所以抽 oss://bucket/ 之后的 key 部分。
     output_prefix_uri = snapshot["output_oss_prefix"].rstrip("/")
-    output_prefix_key = output_prefix_uri.split("/", 3)[3] if output_prefix_uri.startswith("oss://") else output_prefix_uri
+    if output_prefix_uri.startswith("oss://"):
+        # oss://bucket/key1/key2 → key1/key2
+        output_prefix_key = output_prefix_uri.split("/", 3)[3]
+    else:
+        output_prefix_key = output_prefix_uri
 
     indices = only_indices if only_indices is not None else list(range(len(items)))
     if not indices:
@@ -226,7 +231,7 @@ async def run_video_super_resolution_job(
                 db,
                 job_id,
                 viapi,
-                oss,
+                tos,
                 output_prefix_key,
                 items,
                 idx,

@@ -5,7 +5,7 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 import oss2
@@ -23,6 +23,7 @@ logger = logging.getLogger("aliyun_oss_client")
 PART_SIZE = 5 * 1024 * 1024  # 5MB
 MAX_PART_RETRIES = 6
 RETRY_BACKOFF_BASE = 2  # 指数退避：2, 4, 8, 16, 32, 64 秒
+COPY_RETRIES = 4
 
 
 @dataclass
@@ -91,39 +92,75 @@ class AliyunOSSClient:
     def put_object_from_url(
         self, key: str, source_url: str, content_type: str = "video/mp4"
     ) -> None:
-        """Download `source_url` to a temp file, then upload to OSS with per-part retry.
+        """把 `source_url` 的内容存到 OSS `key`。
 
-        不用 oss2.resumable_upload —— 它的 __upload_part 零重试，单个 part SSL EOF
-        就让整个 multipart upload 失败。我们自己管理 uploadId + 逐 part 重试 + 断点续传。
+        用阿里云 OSS 的「异步URL拉取」（AsyncFetchTask）：OSS 服务端直接从
+        source_url 拉取到目标 bucket，**字节流不经过本服务器**。提交后轮询
+        任务状态，直到成功/失败。
+
+        VIAPI 输出 URL 带签名参数、所在 vigen-invi 桶是阿里云内部桶，我们
+        AK 无跨桶读权限，所以不能用 copy_object。AsyncFetch 是唯一零中转方案：
+        OSS 服务端用 HTTP GET 拉 source_url（带签名参数原样发出），落到目标桶。
         """
 
-        tmp = tempfile.NamedTemporaryFile(prefix="vsr-", suffix=".mp4", delete=False)
-        tmp_path = tmp.name
-        tmp.close()
-        try:
-            total = 0
-            with httpx.stream(
-                "GET",
-                source_url,
-                timeout=httpx.Timeout(60.0, read=300.0),
-                follow_redirects=True,
-            ) as r:
-                r.raise_for_status()
-                with open(tmp_path, "wb") as f:
-                    for chunk in r.iter_bytes(chunk_size=1024 * 1024):
-                        f.write(chunk)
-                        total += len(chunk)
-            logger.info("downloaded %d bytes from VIAPI → %s", total, tmp_path)
+        bucket = self._fresh_bucket()
+        config = oss2.models.AsyncFetchTaskConfiguration(
+            url=source_url,
+            object_name=key,
+            ignore_same_key=False,
+        )
+        result = bucket.put_async_fetch_task(config)
+        task_id = result.task_id
+        logger.info(
+            "async fetch task submitted: url=%s → oss://%s/%s, task_id=%s",
+            source_url[:100],
+            self.bucket_name,
+            key,
+            task_id,
+        )
 
-            self._multipart_upload_with_retry(key, tmp_path, content_type, total)
-            logger.info(
-                "uploaded → oss://%s/%s (%d bytes)", self.bucket_name, key, total
-            )
-        finally:
+        # 轮询任务状态：OSS 异步拉取通常 10-60 秒完成（取决于源文件大小）
+        deadline = time.monotonic() + 600  # 10 分钟上限
+        while time.monotonic() < deadline:
+            time.sleep(5)
             try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+                status_resp = self._fresh_bucket().get_async_fetch_task(task_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("get_async_fetch_task %s 出错: %s", task_id, exc)
+                continue
+
+            state = getattr(status_resp, "task_state", None) or ""
+            error_msg = getattr(status_resp, "error_msg", None) or ""
+            logger.info(
+                "async fetch %s state=%s error=%s",
+                task_id,
+                state,
+                error_msg[:100],
+            )
+
+            if state == "Success":
+                # 验证对象确实存在
+                try:
+                    meta = self._fresh_bucket().head_object(key)
+                    logger.info(
+                        "async fetch done: oss://%s/%s (%d bytes)",
+                        self.bucket_name,
+                        key,
+                        meta.content_length,
+                    )
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    raise RuntimeError(
+                        f"async fetch reported Success but head_object failed: {exc}"
+                    )
+            if state in ("Failed", "Cancelled"):
+                raise RuntimeError(
+                    f"async fetch {task_id} {state}: {error_msg}"
+                )
+
+        raise RuntimeError(
+            f"async fetch {task_id} 超时（>10 分钟），最后状态查询失败"
+        )
 
     def _multipart_upload_with_retry(
         self, key: str, file_path: str, content_type: str, total_size: int
