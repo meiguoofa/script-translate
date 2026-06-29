@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     tos_public_endpoint: str = "tos-cn-beijing.volces.com"
     tos_output_prefix: str = "output"
     tos_upload_prefix: str = "uploads"
+    # 新加坡 TOS 桶（视频字幕专用，与北京桶隔离）
+    # 服务器在新加坡，走内网 ivolces.com；用户浏览器上传走外网 volces.com
+    tos_sg_bucket: str = "telduanju"
+    tos_sg_region: str = "ap-southeast-1"
+    tos_sg_s3_internal_endpoint: str = "https://tos-s3-ap-southeast-1.ivolces.com"
+    tos_sg_s3_public_endpoint: str = "https://tos-s3-ap-southeast-1.volces.com"
+    tos_sg_public_endpoint: str = "tos-ap-southeast-1.volces.com"
 
     aliyun_access_key_id: str | None = Field(default=None, alias="ALIBABA_CLOUD_ACCESS_KEY_ID")
     aliyun_access_key_secret: str | None = Field(
@@ -60,6 +67,10 @@ class Settings(BaseSettings):
     viapi_poll_timeout_seconds: int = 10800
     oss_super_res_upload_prefix: str = "super-resolution-input"
     oss_super_res_output_prefix: str = "super-resolution-output"
+    aliyun_videorecog_endpoint: str = "videorecog.cn-shanghai.aliyuncs.com"
+    tos_subtitle_input_prefix: str = "subtitle-input"
+    tos_subtitle_output_prefix: str = "subtitle-output"
+    tos_presign_get_expires_seconds: int = 6 * 3600
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

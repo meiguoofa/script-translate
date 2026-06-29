@@ -215,3 +215,96 @@ export type SuperResJobSummary = {
   created_at: string;
   updated_at: string;
 };
+
+// ===== 视频字幕提取-翻译-合并 =====
+
+export type SubtitleUploadEntry = {
+  filename: string;
+  // 阿里云上海 OSS（VIAPI 用）
+  oss_presigned_url: string;
+  oss_public_url: string;
+  oss_uri: string;
+  oss_key: string;
+  // 新加坡 TOS（烧录源 + 产物）
+  tos_presigned_url: string;
+  tos_public_url: string;
+  tos_uri: string;
+  tos_key: string;
+};
+
+export type SubtitleUploadUrlResponse = {
+  job_id: string;
+  expires_in: number;
+  entries: SubtitleUploadEntry[];
+};
+
+export type SubtitleItemStatus =
+  | "pending"
+  | "extracting"
+  | "extracted"
+  | "translating"
+  | "translated"
+  | "burning"
+  | "succeeded"
+  | "failed";
+
+export type SubtitleJobStatus = "pending" | "running" | "completed" | "failed";
+
+export type SubtitleJobItemOut = {
+  index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_oss_public_url: string;
+  input_tos_uri: string;
+  input_tos_public_url: string;
+  viapi_job_id: string | null;
+  viapi_status: string | null;
+  srt_tos_uri: string | null;
+  srt_tos_public_url: string | null;
+  translated_srt_tos_uri: string | null;
+  translated_srt_tos_public_url: string | null;
+  output_video_tos_uri: string | null;
+  output_video_tos_public_url: string | null;
+  status: SubtitleItemStatus;
+  error: string | null;
+};
+
+export type SubtitleJobOut = {
+  id: string;
+  title: string;
+  video_count: number;
+  subtitle_source: string;
+  enable_translate: boolean;
+  enable_burn: boolean;
+  placement_mode: string;
+  target_lang: string | null;
+  model_provider: string | null;
+  model_name: string | null;
+  items: SubtitleJobItemOut[];
+  original_filenames: string[] | null;
+  output_tos_prefix: string;
+  status: SubtitleJobStatus;
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubtitleJobSummary = {
+  id: string;
+  title: string;
+  video_count: number;
+  subtitle_source: string;
+  enable_translate: boolean;
+  enable_burn: boolean;
+  status: SubtitleJobStatus;
+  succeeded_count: number;
+  failed_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};

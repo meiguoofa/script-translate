@@ -9,6 +9,9 @@ import { ScriptViewerPage } from "./pages/ScriptViewerPage";
 import { SuperResolutionDetailPage } from "./pages/SuperResolutionDetailPage";
 import { SuperResolutionHistoryPage } from "./pages/SuperResolutionHistoryPage";
 import { SuperResolutionPage } from "./pages/SuperResolutionPage";
+import { SubtitleDetailPage } from "./pages/SubtitleDetailPage";
+import { SubtitleHistoryPage } from "./pages/SubtitleHistoryPage";
+import { SubtitlePage } from "./pages/SubtitlePage";
 import { UploadPage } from "./pages/UploadPage";
 import { VideoJobDetailPage } from "./pages/VideoJobDetailPage";
 import { VideoJobHistoryPage } from "./pages/VideoJobHistoryPage";
@@ -27,6 +30,9 @@ export default function App() {
           <Route path="/super-resolution" element={<SuperResolutionPage />} />
           <Route path="/super-resolution/history" element={<SuperResolutionHistoryPage />} />
           <Route path="/super-resolution/:jobId" element={<SuperResolutionDetailPage />} />
+          <Route path="/subtitle" element={<SubtitlePage />} />
+          <Route path="/subtitle/history" element={<SubtitleHistoryPage />} />
+          <Route path="/subtitle/:jobId" element={<SubtitleDetailPage />} />
           <Route path="/prompts" element={<PromptTemplatesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/scripts/:scriptId" element={<ScriptViewerPage />} />

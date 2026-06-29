@@ -11,6 +11,9 @@ import type {
   ScriptCreateResponse,
   ScriptDetail,
   ScriptSummary,
+  SubtitleJobOut,
+  SubtitleJobSummary,
+  SubtitleUploadUrlResponse,
   SuperResJobOut,
   SuperResJobSummary,
   SuperResUploadUrlResponse,
@@ -211,5 +214,63 @@ export async function retrySuperResJob(jobId: string) {
 
 export async function listSuperResJobs(params?: { limit?: number; offset?: number }) {
   const response = await client.get<SuperResJobSummary[]>("/super-resolution", { params });
+  return response.data;
+}
+
+// ===== 视频字幕提取-翻译-合并 =====
+
+export type SubtitleUploadUrlInput = {
+  files: { filename: string; content_type: string }[];
+};
+
+export async function requestSubtitleUploadUrls(payload: SubtitleUploadUrlInput) {
+  const response = await client.post<SubtitleUploadUrlResponse>(
+    "/subtitle/upload-url",
+    payload
+  );
+  return response.data;
+}
+
+export type SubtitleJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  oss_public_url: string;
+  oss_key: string;
+  tos_uri: string;
+  tos_public_url: string;
+  tos_key: string;
+};
+
+export type SubtitleJobCreateInput = {
+  job_id: string;
+  title: string;
+  subtitle_source: string;
+  enable_translate: boolean;
+  enable_burn: boolean;
+  placement_mode: string;
+  target_lang?: string | null;
+  model_provider?: string | null;
+  model_name?: string | null;
+  items: SubtitleJobItemInput[];
+  original_filenames?: string[];
+};
+
+export async function createSubtitleJob(payload: SubtitleJobCreateInput) {
+  const response = await client.post<SubtitleJobOut>("/subtitle", payload);
+  return response.data;
+}
+
+export async function getSubtitleJob(jobId: string) {
+  const response = await client.get<SubtitleJobOut>(`/subtitle/${jobId}`);
+  return response.data;
+}
+
+export async function retrySubtitleJob(jobId: string) {
+  const response = await client.post<SubtitleJobOut>(`/subtitle/${jobId}/retry`);
+  return response.data;
+}
+
+export async function listSubtitleJobs(params?: { limit?: number; offset?: number }) {
+  const response = await client.get<SubtitleJobSummary[]>("/subtitle", { params });
   return response.data;
 }

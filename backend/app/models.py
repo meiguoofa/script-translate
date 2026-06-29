@@ -176,3 +176,30 @@ class VideoSuperResolutionJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class VideoSubtitleJob(Base):
+    __tablename__ = "video_subtitle_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    video_count: Mapped[int] = mapped_column(Integer, default=0)
+    subtitle_source: Mapped[str] = mapped_column(String(16))
+    enable_translate: Mapped[bool] = mapped_column(Boolean, default=False)
+    enable_burn: Mapped[bool] = mapped_column(Boolean, default=False)
+    placement_mode: Mapped[str] = mapped_column(String(32), default="safe_bottom")
+    target_lang: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    items_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_tos_prefix: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -5,6 +5,7 @@ from typing import Iterable
 from urllib.parse import quote
 
 import boto3
+import httpx
 from botocore.client import Config
 
 from app.config import Settings
@@ -73,6 +74,39 @@ class TOSClient:
         response = self._client.get_object(Bucket=self.bucket, Key=key)
         body = response["Body"].read()
         return body
+
+    def download_object_to_file(self, key: str, file_path: str) -> None:
+        """流式下载到本地文件。
+
+        boto3 download_file 在跨地域（新加坡→北京，RTT 250ms）下极慢（0.18MB/s），
+        因为它先 HeadObject 再单连接 GET，TCP 窗口涨不起来。
+        改用预签名 URL + httpx 流式，实测 1.94MB/s（11 倍提升）。
+        """
+        url = self.presign_get(key, 6 * 3600)
+        with httpx.Client(timeout=httpx.Timeout(600.0, connect=30.0)) as client:
+            with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                with open(file_path, "wb") as f:
+                    for chunk in resp.iter_bytes(chunk_size=1024 * 1024):
+                        f.write(chunk)
+
+    def presign_get(self, key: str, expires_in: int = 6 * 3600) -> str:
+        """生成 GET 预签名 URL，供阿里云 VIAPI 临时读取私有视频。"""
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires_in,
+            HttpMethod="GET",
+        )
+
+    def upload_file(
+        self, key: str, file_path: str, content_type: str | None = None
+    ) -> None:
+        """上传本地文件到 TOS，大文件自动分片。"""
+        extra_args = {"ContentType": content_type} if content_type else None
+        self._client.upload_file(
+            file_path, self.bucket, key, ExtraArgs=extra_args
+        )
 
 
 def parse_tos_uri(uri: str) -> tuple[str, str]:

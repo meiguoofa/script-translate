@@ -295,3 +295,125 @@ class SuperResJobSummary(BaseModel):
     error_message: str | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
+
+
+# ===== 视频字幕提取-翻译-合并 =====
+
+
+class SubtitleUploadFileSpec(BaseModel):
+    filename: str
+    content_type: str | None = None
+
+
+class SubtitleUploadUrlRequest(BaseModel):
+    files: list[SubtitleUploadFileSpec]
+
+
+class SubtitleUploadEntry(BaseModel):
+    filename: str
+    # 阿里云上海 OSS（VIAPI 字幕 OCR 用）
+    oss_presigned_url: str
+    oss_public_url: str
+    oss_uri: str
+    oss_key: str
+    # 新加坡 TOS（烧录视频源 + 产物存储）
+    tos_presigned_url: str
+    tos_public_url: str
+    tos_uri: str
+    tos_key: str
+
+
+class SubtitleUploadUrlResponse(BaseModel):
+    job_id: str
+    expires_in: int
+    entries: list[SubtitleUploadEntry]
+
+
+class SubtitleJobItemSpec(BaseModel):
+    filename: str
+    # OSS
+    oss_uri: str
+    oss_public_url: str
+    oss_key: str
+    # 新加坡 TOS
+    tos_uri: str
+    tos_public_url: str
+    tos_key: str
+
+
+class SubtitleJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    subtitle_source: str = Field(default="chinese", pattern="^(chinese|all)$")
+    enable_translate: bool = False
+    enable_burn: bool = False
+    placement_mode: str = Field(default="safe_bottom", pattern="^(safe_bottom|simple_bottom)$")
+    target_lang: str | None = None
+    model_provider: str | None = None
+    model_name: str | None = None
+    items: list[SubtitleJobItemSpec]
+    original_filenames: list[str] | None = None
+
+
+class SubtitleJobItemOut(BaseModel):
+    index: int
+    filename: str
+    # 输入：OSS（VIAPI 用）+ 新加坡 TOS（烧录源）
+    input_oss_uri: str
+    input_oss_public_url: str
+    input_tos_uri: str
+    input_tos_public_url: str
+    # VIAPI
+    viapi_job_id: str | None
+    viapi_status: str | None
+    # SRT 产物（新加坡 TOS）
+    srt_tos_uri: str | None
+    srt_tos_public_url: str | None
+    # 译文 SRT（新加坡 TOS）
+    translated_srt_tos_uri: str | None
+    translated_srt_tos_public_url: str | None
+    # 输出视频（新加坡 TOS）
+    output_video_tos_uri: str | None
+    output_video_tos_public_url: str | None
+    status: str
+    error: str | None
+
+
+class SubtitleJobOut(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    subtitle_source: str
+    enable_translate: bool
+    enable_burn: bool
+    placement_mode: str
+    target_lang: str | None
+    model_provider: str | None
+    model_name: str | None
+    items: list[SubtitleJobItemOut]
+    original_filenames: list[str] | None
+    output_tos_prefix: str
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class SubtitleJobSummary(BaseModel):
+    id: str
+    title: str
+    video_count: int
+    subtitle_source: str
+    enable_translate: bool
+    enable_burn: bool
+    status: str
+    succeeded_count: int
+    failed_count: int
+    error_message: str | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
