@@ -113,6 +113,10 @@ export function getCleanedScriptDownloadUrl(id: string) {
   return `/api/cleaned-scripts/${id}/download`;
 }
 
+export function getScriptDownloadUrl(scriptId: string) {
+  return `/api/scripts/${scriptId}/download`;
+}
+
 export async function verifyPassphrase(passphrase: string) {
   const response = await client.post<AccessVerifyResponse>("/access/verify", { passphrase });
   return response.data;

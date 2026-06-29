@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
-import { getModels, getVideoJob, startTranslation } from "@/api/client";
+import { CheckCircle2, Download, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { getModels, getScriptDownloadUrl, getVideoJob, startTranslation } from "@/api/client";
 import type { ModelOption, VideoJobOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -178,12 +178,24 @@ export function VideoJobDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">剧本预览</CardTitle>
               <CardDescription>
-                <Link
-                  className="underline hover:text-foreground"
-                  to={`/scripts/${job.generated_script_id}`}
-                >
-                  打开完整剧本
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link
+                    className="underline hover:text-foreground"
+                    to={`/scripts/${job.generated_script_id}`}
+                  >
+                    打开完整剧本
+                  </Link>
+                  <a
+                    href={getScriptDownloadUrl(job.generated_script_id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button size="sm" variant="secondary">
+                      <Download className="mr-1 h-4 w-4" />
+                      下载 Word
+                    </Button>
+                  </a>
+                </div>
               </CardDescription>
             </CardHeader>
             <CardContent>

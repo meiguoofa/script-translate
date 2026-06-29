@@ -13,6 +13,7 @@ from app.services.doc_generator import generate_docx
 
 
 router = APIRouter(prefix="/translations", tags=["downloads"])
+scripts_router = APIRouter(prefix="/scripts", tags=["downloads"])
 
 
 @router.get("/{version_id}/download")
@@ -50,4 +51,24 @@ async def download_translation(version_id: str, session: AsyncSession = Depends(
         )
         session.add(generated)
         await session.commit()
+    return FileResponse(absolute_path, filename=filename)
+
+
+@scripts_router.get("/{script_id}/download")
+async def download_script(script_id: str, session: AsyncSession = Depends(get_session), settings=Depends(get_settings)):
+    """按 script_id 下载原文 Word（无需先翻译）。视频还原完成后即可调用。"""
+    script = await session.scalar(
+        select(Script)
+        .where(Script.id == script_id)
+        .options(selectinload(Script.lines))
+    )
+    if script is None:
+        raise HTTPException(status_code=404, detail="剧本不存在")
+
+    lines = sorted(script.lines, key=lambda l: l.line_no)
+    title_slug = script.title.replace(" ", "-") or "script"
+    filename = f"{title_slug}-原文.docx"
+    relative_path = Path("generated") / "scripts" / script_id / filename
+    absolute_path = settings.storage_path / relative_path
+    generate_docx([l.raw_line for l in lines], absolute_path)
     return FileResponse(absolute_path, filename=filename)

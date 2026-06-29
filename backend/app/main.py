@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(scripts.router, prefix=settings.api_prefix)
     app.include_router(translations.router, prefix=settings.api_prefix)
     app.include_router(downloads.router, prefix=settings.api_prefix)
+    app.include_router(downloads.scripts_router, prefix=settings.api_prefix)
     app.include_router(cleaned_scripts.router, prefix=settings.api_prefix)
     app.include_router(access.router, prefix=settings.api_prefix)
     app.include_router(prompt_templates.router, prefix=settings.api_prefix)

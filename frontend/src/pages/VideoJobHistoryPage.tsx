@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listVideoJobs } from "@/api/client";
+import { Download } from "lucide-react";
+import { getScriptDownloadUrl, listVideoJobs } from "@/api/client";
 import type { VideoJobSummary } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,9 +98,21 @@ export function VideoJobHistoryPage() {
                   </Button>
                 </Link>
                 {item.status === "completed" && item.generated_script_id ? (
-                  <Link to={`/scripts/${item.generated_script_id}`}>
-                    <Button size="sm">打开剧本</Button>
-                  </Link>
+                  <>
+                    <Link to={`/scripts/${item.generated_script_id}`}>
+                      <Button size="sm">打开剧本</Button>
+                    </Link>
+                    <a
+                      href={getScriptDownloadUrl(item.generated_script_id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button size="sm" variant="secondary">
+                        <Download className="mr-1 h-4 w-4" />
+                        下载 Word
+                      </Button>
+                    </a>
+                  </>
                 ) : null}
               </div>
             </CardContent>
