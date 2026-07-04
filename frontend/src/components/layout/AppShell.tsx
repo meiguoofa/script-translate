@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { Captions, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
+import { Captions, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { to: "/super-resolution/history", label: "超分辨历史", icon: History, end: false },
   { to: "/subtitle", label: "视频字幕", icon: Captions, end: true },
   { to: "/subtitle/history", label: "字幕历史", icon: History, end: false },
+  { to: "/subtitle-erase", label: "字幕擦除翻译", icon: Eraser, end: true },
+  { to: "/subtitle-erase/history", label: "擦除翻译历史", icon: History, end: false },
   { to: "/prompts", label: "提示词管理", icon: Wand2, end: false },
   { to: "/history", label: "翻译历史", icon: History, end: false },
 ];
@@ -27,6 +29,9 @@ function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/subtitle") return { title: "视频字幕", subtitle: "提取字幕 → 翻译 → 烧录到新视频" };
   if (pathname === "/subtitle/history") return { title: "字幕历史", subtitle: "查看所有字幕处理任务" };
   if (pathname.startsWith("/subtitle/")) return { title: "字幕任务详情", subtitle: "查看提取/翻译/烧录进度并下载" };
+  if (pathname === "/subtitle-erase") return { title: "字幕擦除翻译", subtitle: "提取 → 擦除原字幕 → 翻译 → 烧录译文字幕" };
+  if (pathname === "/subtitle-erase/history") return { title: "擦除翻译历史", subtitle: "查看所有字幕擦除翻译任务" };
+  if (pathname.startsWith("/subtitle-erase/")) return { title: "擦除翻译任务详情", subtitle: "查看各阶段进度并下载" };
   if (pathname.startsWith("/prompts")) return { title: "提示词管理", subtitle: "维护视频还原使用的提示词" };
   if (pathname.startsWith("/history")) return { title: "翻译历史", subtitle: "查看所有剧本及历史翻译版本" };
   if (pathname.startsWith("/scripts/")) return { title: "剧本详情", subtitle: scriptId ? `脚本 ${scriptId.slice(0, 8)}…` : "" };

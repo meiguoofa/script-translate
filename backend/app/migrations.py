@@ -6,6 +6,7 @@ from app.models import (
     CleanedScriptJob,
     PromptTemplate,
     VideoScriptJob,
+    VideoSubtitleEraseJob,
     VideoSubtitleJob,
     VideoSuperResolutionJob,
 )
@@ -21,6 +22,7 @@ CREATE_PROMPT_TEMPLATES_VERSION = "20260614_001_create_prompt_templates"
 CREATE_VIDEO_SCRIPT_JOBS_VERSION = "20260614_002_create_video_script_jobs"
 CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION = "20260624_001_create_video_super_resolution_jobs"
 CREATE_VIDEO_SUBTITLE_JOBS_VERSION = "20260627_001_create_video_subtitle_jobs"
+CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION = "20260704_001_create_video_subtitle_erase_jobs"
 
 
 metadata = MetaData()
@@ -68,6 +70,12 @@ async def run_migrations(connection: AsyncConnection) -> None:
             schema_migrations.insert().values(version=CREATE_VIDEO_SUBTITLE_JOBS_VERSION)
         )
 
+    if CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION not in applied:
+        await connection.run_sync(_create_video_subtitle_erase_jobs)
+        await connection.execute(
+            schema_migrations.insert().values(version=CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION)
+        )
+
     await _seed_default_prompt(connection)
 
 
@@ -104,6 +112,13 @@ def _create_video_subtitle_jobs(sync_connection) -> None:
     if VideoSubtitleJob.__tablename__ in inspector.get_table_names():
         return
     VideoSubtitleJob.__table__.create(sync_connection, checkfirst=True)
+
+
+def _create_video_subtitle_erase_jobs(sync_connection) -> None:
+    inspector = inspect(sync_connection)
+    if VideoSubtitleEraseJob.__tablename__ in inspector.get_table_names():
+        return
+    VideoSubtitleEraseJob.__table__.create(sync_connection, checkfirst=True)
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

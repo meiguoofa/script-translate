@@ -60,7 +60,7 @@ class Settings(BaseSettings):
         default=None, alias="ALIBABA_CLOUD_ACCESS_KEY_SECRET"
     )
     aliyun_oss_endpoint: str = "oss-cn-shanghai.aliyuncs.com"
-    aliyun_oss_bucket: str = "xzdl-video-super-resolution"
+    aliyun_oss_bucket: str = "xzdl-shortdrama"
     aliyun_oss_region: str = "cn-shanghai"
     aliyun_viapi_endpoint: str = "videoenhan.cn-shanghai.aliyuncs.com"
     viapi_poll_interval_seconds: int = 10
@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     tos_subtitle_input_prefix: str = "subtitle-input"
     tos_subtitle_output_prefix: str = "subtitle-output"
     tos_presign_get_expires_seconds: int = 6 * 3600
+
+    # 阿里云 IMS/ICE（字幕提取/擦除/视频翻译）
+    aliyun_ice_endpoint: str = "ice.cn-shanghai.aliyuncs.com"
+    ims_poll_interval_seconds: int = 10
+    ims_poll_timeout_seconds: int = 10800
+    ims_default_qps: int = 10
+    oss_subtitle_erase_input_prefix: str = "subtitle-erase-input"
+    oss_subtitle_erase_output_prefix: str = "subtitle-erase-output"
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

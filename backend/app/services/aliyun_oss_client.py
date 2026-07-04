@@ -71,6 +71,34 @@ class AliyunOSSClient:
     def oss_uri(self, key: str) -> str:
         return f"oss://{self.bucket_name}/{key}"
 
+    @staticmethod
+    def parse_oss_uri(oss_uri: str) -> tuple[str, str]:
+        """`oss://bucket/key1/key2` → (bucket, "key1/key2")。"""
+
+        if not oss_uri.startswith("oss://"):
+            raise ValueError(f"非法 OSS URI: {oss_uri}")
+        rest = oss_uri[len("oss://"):]
+        parts = rest.split("/", 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ""
+        return bucket, key
+
+    def get_object_text(self, key: str, *, encoding: str = "utf-8") -> str:
+        """读取 OSS 对象为文本（用于 SRT 文件）。"""
+
+        bucket = self._fresh_bucket()
+        stream = bucket.get_object(key)
+        try:
+            return stream.read().decode(encoding)
+        finally:
+            stream.close()
+
+    def put_object_text(self, key: str, text: str, *, content_type: str = "application/x-subrip") -> None:
+        """把文本写入 OSS 对象（用于 cleaned/translated SRT）。"""
+
+        bucket = self._fresh_bucket()
+        bucket.put_object(key, text.encode("utf-8"), headers={"Content-Type": content_type})
+
     def presign_put(
         self, key: str, content_type: str | None = None, expires_in: int = 3600
     ) -> PresignedPutResult:

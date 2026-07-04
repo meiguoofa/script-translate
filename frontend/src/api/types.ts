@@ -308,3 +308,147 @@ export type SubtitleJobSummary = {
   created_at: string;
   updated_at: string;
 };
+
+
+// ===== 字幕擦除 + 翻译（IMS/ICE） =====
+
+export type SubtitleEraseUploadEntry = {
+  filename: string;
+  presigned_url: string;
+  public_url: string;
+  oss_uri: string;
+  key: string;
+};
+
+export type SubtitleEraseUploadUrlResponse = {
+  job_id: string;
+  expires_in: number;
+  entries: SubtitleEraseUploadEntry[];
+};
+
+export type SubtitleEraseItemStage =
+  | "pending"
+  | "extracting"
+  | "cleaning"
+  | "translating"
+  | "burning"
+  | "done";
+
+export type SubtitleEraseItemStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export type SubtitleEraseJobItemOut = {
+  index: number;
+  drama_index: number;
+  episode_index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_public_url: string;
+  caption_job_id: string | null;
+  caption_status: string | null;
+  source_srt_oss_uri: string | null;
+  cleaned_srt_oss_uri: string | null;
+  translated_srt_oss_uri: string | null;
+  detext_job_id: string | null;
+  detext_status: string | null;
+  clean_video_oss_uri: string | null;
+  translation_job_id: string | null;
+  translation_status: string | null;
+  output_video_oss_uri: string | null;
+  output_public_url: string | null;
+  stage: SubtitleEraseItemStage;
+  status: SubtitleEraseItemStatus;
+  error: string | null;
+};
+
+export type SubtitleEraseJobOut = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  detext_mode: "basic" | "advanced";
+  translate_mode: "aliyun" | "llm";
+  source_lang: string | null;
+  target_lang: string;
+  model_provider: string | null;
+  model_name: string | null;
+  qps: number;
+  caption_fps: number;
+  caption_lang: string;
+  caption_track: string;
+  caption_roi: string | null;
+  caption_sep: boolean;
+  detext_limit_region: string | null;
+  burn_font_size: number;
+  burn_font_color: string;
+  burn_font_color_opacity: number;
+  burn_x: number;
+  burn_y: number;
+  burn_text_width: number;
+  items: SubtitleEraseJobItemOut[];
+  original_filenames: string[] | null;
+  output_oss_prefix: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubtitleEraseJobSummary = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  detext_mode: "basic" | "advanced";
+  translate_mode: "aliyun" | "llm";
+  target_lang: string;
+  status: "pending" | "running" | "completed" | "failed";
+  succeeded_count: number;
+  failed_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubtitleEraseJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  key?: string | null;
+  drama_index?: number;
+  episode_index?: number;
+};
+
+export type SubtitleEraseJobCreateInput = {
+  job_id: string;
+  title: string;
+  detext_mode: "basic" | "advanced";
+  translate_mode: "aliyun" | "llm";
+  source_lang?: string | null;
+  target_lang: string;
+  model_provider?: string | null;
+  model_name?: string | null;
+  qps: number;
+  caption_fps: number;
+  caption_lang: string;
+  caption_track: string;
+  caption_roi?: string | null;
+  caption_sep: boolean;
+  detext_limit_region?: string | null;
+  burn_font_size: number;
+  burn_font_color: string;
+  burn_font_color_opacity: number;
+  burn_x: number;
+  burn_y: number;
+  burn_text_width: number;
+  items: SubtitleEraseJobItemInput[];
+  original_filenames?: string[] | null;
+};

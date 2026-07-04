@@ -417,3 +417,156 @@ class SubtitleJobSummary(BaseModel):
     error_message: str | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
+
+
+# ===== 视频字幕擦除 + 翻译（IMS/ICE） =====
+
+
+class SubtitleEraseUploadFileSpec(BaseModel):
+    filename: str
+    content_type: str = "video/mp4"
+
+
+class SubtitleEraseUploadUrlRequest(BaseModel):
+    files: list[SubtitleEraseUploadFileSpec]
+
+
+class SubtitleEraseUploadEntry(BaseModel):
+    filename: str
+    presigned_url: str
+    public_url: str
+    oss_uri: str
+    key: str
+
+
+class SubtitleEraseUploadUrlResponse(BaseModel):
+    job_id: str
+    expires_in: int
+    entries: list[SubtitleEraseUploadEntry]
+
+
+class SubtitleEraseJobItemSpec(BaseModel):
+    filename: str
+    oss_uri: str
+    public_url: str
+    key: str | None = None
+    drama_index: int = 0
+    episode_index: int = 0
+
+
+class SubtitleEraseJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    detext_mode: str = Field(default="advanced", pattern="^(basic|advanced)$")
+    translate_mode: str = Field(default="aliyun", pattern="^(aliyun|llm)$")
+    source_lang: str | None = None
+    target_lang: str
+    model_provider: str | None = None
+    model_name: str | None = None
+    qps: int = Field(default=10, ge=1, le=50)
+
+    caption_fps: int = Field(default=5, ge=2, le=10)
+    caption_lang: str = "ch_ml"
+    caption_track: str = "main"
+    caption_roi: str | None = None
+    caption_sep: bool = False
+
+    detext_limit_region: str | None = None
+
+    burn_font_size: int = Field(default=72, ge=8, le=200)
+    burn_font_color: str = "#FFFFFF"
+    burn_font_color_opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    burn_x: float = Field(default=0.5, ge=0.0, le=1.0)
+    burn_y: float = Field(default=0.82, ge=0.0, le=1.0)
+    burn_text_width: float = Field(default=0.9, ge=0.1, le=1.0)
+
+    items: list[SubtitleEraseJobItemSpec]
+    original_filenames: list[str] | None = None
+
+
+class SubtitleEraseJobItemOut(BaseModel):
+    index: int
+    drama_index: int
+    episode_index: int
+    filename: str
+    input_oss_uri: str
+    input_public_url: str
+
+    caption_job_id: str | None
+    caption_status: str | None
+    source_srt_oss_uri: str | None
+    cleaned_srt_oss_uri: str | None
+    translated_srt_oss_uri: str | None
+
+    detext_job_id: str | None
+    detext_status: str | None
+    clean_video_oss_uri: str | None
+
+    translation_job_id: str | None
+    translation_status: str | None
+
+    output_video_oss_uri: str | None
+    output_public_url: str | None
+
+    stage: str
+    status: str
+    error: str | None
+
+
+class SubtitleEraseJobOut(BaseModel):
+    id: str
+    title: str
+    drama_count: int
+    video_count: int
+
+    detext_mode: str
+    translate_mode: str
+    source_lang: str | None
+    target_lang: str
+    model_provider: str | None
+    model_name: str | None
+    qps: int
+
+    caption_fps: int
+    caption_lang: str
+    caption_track: str
+    caption_roi: str | None
+    caption_sep: bool
+
+    detext_limit_region: str | None
+
+    burn_font_size: int
+    burn_font_color: str
+    burn_font_color_opacity: float
+    burn_x: float
+    burn_y: float
+    burn_text_width: float
+
+    items: list[SubtitleEraseJobItemOut]
+    original_filenames: list[str] | None
+    output_oss_prefix: str
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class SubtitleEraseJobSummary(BaseModel):
+    id: str
+    title: str
+    drama_count: int
+    video_count: int
+    detext_mode: str
+    translate_mode: str
+    target_lang: str
+    status: str
+    succeeded_count: int
+    failed_count: int
+    error_message: str | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime

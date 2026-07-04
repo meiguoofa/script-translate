@@ -11,6 +11,10 @@ import type {
   ScriptCreateResponse,
   ScriptDetail,
   ScriptSummary,
+  SubtitleEraseJobCreateInput,
+  SubtitleEraseJobOut,
+  SubtitleEraseJobSummary,
+  SubtitleEraseUploadUrlResponse,
   SubtitleJobOut,
   SubtitleJobSummary,
   SubtitleUploadUrlResponse,
@@ -276,5 +280,39 @@ export async function retrySubtitleJob(jobId: string) {
 
 export async function listSubtitleJobs(params?: { limit?: number; offset?: number }) {
   const response = await client.get<SubtitleJobSummary[]>("/subtitle", { params });
+  return response.data;
+}
+
+// ===== 字幕擦除 + 翻译（IMS/ICE） =====
+
+export type SubtitleEraseUploadUrlInput = {
+  files: { filename: string; content_type: string }[];
+};
+
+export async function requestSubtitleEraseUploadUrls(payload: SubtitleEraseUploadUrlInput) {
+  const response = await client.post<SubtitleEraseUploadUrlResponse>(
+    "/subtitle-erase/upload-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function createSubtitleEraseJob(payload: SubtitleEraseJobCreateInput) {
+  const response = await client.post<SubtitleEraseJobOut>("/subtitle-erase", payload);
+  return response.data;
+}
+
+export async function getSubtitleEraseJob(jobId: string) {
+  const response = await client.get<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}`);
+  return response.data;
+}
+
+export async function retrySubtitleEraseJob(jobId: string) {
+  const response = await client.post<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}/retry`);
+  return response.data;
+}
+
+export async function listSubtitleEraseJobs(params?: { limit?: number; offset?: number }) {
+  const response = await client.get<SubtitleEraseJobSummary[]>("/subtitle-erase", { params });
   return response.data;
 }

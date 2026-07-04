@@ -1,0 +1,364 @@
+import json
+import re
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.deps import get_session, get_settings, require_passphrase
+from app.models import VideoSubtitleEraseJob
+from app.schemas import (
+    SubtitleEraseJobCreateRequest,
+    SubtitleEraseJobItemOut,
+    SubtitleEraseJobOut,
+    SubtitleEraseJobSummary,
+    SubtitleEraseUploadEntry,
+    SubtitleEraseUploadUrlRequest,
+    SubtitleEraseUploadUrlResponse,
+)
+from app.services.aliyun_oss_client import AliyunOSSClient
+from app.services.subtitle_erase_translate_runner import (
+    RETRY_FIELDS,
+    run_subtitle_erase_translate_job,
+)
+
+router = APIRouter(prefix="/subtitle-erase", tags=["subtitle-erase"])
+
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_filename(name: str) -> str:
+    base = name.strip().replace("\\", "/").split("/")[-1] or "video"
+    return _SAFE_NAME.sub("_", base)
+
+
+def _items_counts(items: list[dict]) -> tuple[int, int]:
+    succeeded = sum(1 for it in items if it.get("status") == "succeeded")
+    failed = sum(1 for it in items if it.get("status") == "failed")
+    return succeeded, failed
+
+
+def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
+    try:
+        items = json.loads(job.items_json or "[]")
+    except Exception:
+        items = []
+    try:
+        filenames = (
+            json.loads(job.original_filenames_json) if job.original_filenames_json else None
+        )
+    except Exception:
+        filenames = None
+    succeeded, failed = _items_counts(items)
+    items_out: list[SubtitleEraseJobItemOut] = []
+    for it in items:
+        items_out.append(
+            SubtitleEraseJobItemOut(
+                index=it.get("index", 0),
+                drama_index=it.get("drama_index", 0),
+                episode_index=it.get("episode_index", 0),
+                filename=it.get("filename", ""),
+                input_oss_uri=it.get("input_oss_uri", ""),
+                input_public_url=it.get("input_public_url", ""),
+                caption_job_id=it.get("caption_job_id"),
+                caption_status=it.get("caption_status"),
+                source_srt_oss_uri=it.get("source_srt_oss_uri"),
+                cleaned_srt_oss_uri=it.get("cleaned_srt_oss_uri"),
+                translated_srt_oss_uri=it.get("translated_srt_oss_uri"),
+                detext_job_id=it.get("detext_job_id"),
+                detext_status=it.get("detext_status"),
+                clean_video_oss_uri=it.get("clean_video_oss_uri"),
+                translation_job_id=it.get("translation_job_id"),
+                translation_status=it.get("translation_status"),
+                output_video_oss_uri=it.get("output_video_oss_uri"),
+                output_public_url=it.get("output_public_url"),
+                stage=it.get("stage", "pending"),
+                status=it.get("status", "pending"),
+                error=it.get("error"),
+            )
+        )
+    return SubtitleEraseJobOut(
+        id=job.id,
+        title=job.title,
+        drama_count=job.drama_count,
+        video_count=job.video_count,
+        detext_mode=job.detext_mode,
+        translate_mode=job.translate_mode,
+        source_lang=job.source_lang,
+        target_lang=job.target_lang,
+        model_provider=job.model_provider,
+        model_name=job.model_name,
+        qps=job.qps,
+        caption_fps=job.caption_fps,
+        caption_lang=job.caption_lang,
+        caption_track=job.caption_track,
+        caption_roi=job.caption_roi,
+        caption_sep=job.caption_sep,
+        detext_limit_region=job.detext_limit_region,
+        burn_font_size=job.burn_font_size,
+        burn_font_color=job.burn_font_color,
+        burn_font_color_opacity=float(job.burn_font_color_opacity),
+        burn_x=float(job.burn_x),
+        burn_y=float(job.burn_y),
+        burn_text_width=float(job.burn_text_width),
+        items=items_out,
+        original_filenames=filenames,
+        output_oss_prefix=job.output_oss_prefix,
+        status=job.status,
+        progress_message=job.progress_message,
+        error_message=job.error_message,
+        succeeded_count=succeeded,
+        failed_count=failed,
+        submitted_at=job.submitted_at,
+        completed_at=job.completed_at,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+    )
+
+
+def _job_to_summary(job: VideoSubtitleEraseJob) -> SubtitleEraseJobSummary:
+    try:
+        items = json.loads(job.items_json or "[]")
+    except Exception:
+        items = []
+    succeeded, failed = _items_counts(items)
+    return SubtitleEraseJobSummary(
+        id=job.id,
+        title=job.title,
+        drama_count=job.drama_count,
+        video_count=job.video_count,
+        detext_mode=job.detext_mode,
+        translate_mode=job.translate_mode,
+        target_lang=job.target_lang,
+        status=job.status,
+        succeeded_count=succeeded,
+        failed_count=failed,
+        error_message=job.error_message,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+    )
+
+
+@router.post(
+    "/upload-url",
+    response_model=SubtitleEraseUploadUrlResponse,
+    dependencies=[Depends(require_passphrase)],
+)
+async def create_upload_urls(
+    payload: SubtitleEraseUploadUrlRequest,
+    settings=Depends(get_settings),
+) -> SubtitleEraseUploadUrlResponse:
+    if not payload.files:
+        raise HTTPException(status_code=400, detail="文件列表不能为空")
+    try:
+        oss = AliyunOSSClient(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    job_id = str(uuid.uuid4())
+    expires_in = 3600
+    entries: list[SubtitleEraseUploadEntry] = []
+    prefix = settings.oss_subtitle_erase_input_prefix.rstrip("/") or "subtitle-erase-input"
+    for index, spec in enumerate(payload.files):
+        safe = _safe_filename(spec.filename)
+        key = f"{prefix}/{job_id}/{index:02d}-{safe}"
+        result = oss.presign_put(key, content_type=spec.content_type, expires_in=expires_in)
+        entries.append(
+            SubtitleEraseUploadEntry(
+                filename=spec.filename,
+                presigned_url=result.presigned_url,
+                public_url=result.public_url,
+                oss_uri=result.oss_uri,
+                key=result.key,
+            )
+        )
+    return SubtitleEraseUploadUrlResponse(job_id=job_id, expires_in=expires_in, entries=entries)
+
+
+@router.post(
+    "",
+    response_model=SubtitleEraseJobOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_passphrase)],
+)
+async def create_subtitle_erase_job(
+    payload: SubtitleEraseJobCreateRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
+) -> SubtitleEraseJobOut:
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="视频列表不能为空")
+    for it in payload.items:
+        if not it.oss_uri.startswith("oss://"):
+            raise HTTPException(status_code=400, detail=f"非法的视频 oss_uri: {it.oss_uri}")
+    if payload.translate_mode == "llm":
+        if not (payload.model_provider and payload.model_name):
+            raise HTTPException(
+                status_code=400,
+                detail="LLM 翻译模式必须提供 model_provider 和 model_name",
+            )
+    if payload.translate_mode == "aliyun" and not payload.source_lang:
+        raise HTTPException(
+            status_code=400,
+            detail="阿里云翻译模式必须提供 source_lang",
+        )
+
+    existing = await session.get(VideoSubtitleEraseJob, payload.job_id)
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="job_id 已存在")
+
+    output_prefix = (
+        f"oss://{settings.aliyun_oss_bucket}/"
+        f"{settings.oss_subtitle_erase_output_prefix.strip('/') or 'subtitle-erase-output'}/"
+        f"{payload.job_id}/"
+    )
+
+    items: list[dict] = []
+    for index, spec in enumerate(payload.items):
+        items.append(
+            {
+                "index": index,
+                "drama_index": spec.drama_index,
+                "episode_index": spec.episode_index,
+                "filename": spec.filename,
+                "input_oss_uri": spec.oss_uri,
+                "input_public_url": spec.public_url,
+                "caption_job_id": None,
+                "caption_status": None,
+                "source_srt_oss_uri": None,
+                "cleaned_srt_oss_uri": None,
+                "translated_srt_oss_uri": None,
+                "detext_job_id": None,
+                "detext_status": None,
+                "clean_video_oss_uri": None,
+                "translation_job_id": None,
+                "translation_status": None,
+                "output_video_oss_uri": None,
+                "output_public_url": None,
+                "stage": "pending",
+                "status": "pending",
+                "error": None,
+            }
+        )
+
+    drama_count = len({it["drama_index"] for it in items})
+
+    job = VideoSubtitleEraseJob(
+        id=payload.job_id,
+        title=title,
+        drama_count=drama_count,
+        video_count=len(payload.items),
+        detext_mode=payload.detext_mode,
+        translate_mode=payload.translate_mode,
+        source_lang=payload.source_lang,
+        target_lang=payload.target_lang,
+        model_provider=payload.model_provider,
+        model_name=payload.model_name,
+        qps=payload.qps,
+        caption_fps=payload.caption_fps,
+        caption_lang=payload.caption_lang,
+        caption_track=payload.caption_track,
+        caption_roi=payload.caption_roi,
+        caption_sep=payload.caption_sep,
+        detext_limit_region=payload.detext_limit_region,
+        burn_font_size=payload.burn_font_size,
+        burn_font_color=payload.burn_font_color,
+        burn_font_color_opacity=payload.burn_font_color_opacity,
+        burn_x=payload.burn_x,
+        burn_y=payload.burn_y,
+        burn_text_width=payload.burn_text_width,
+        items_json=json.dumps(items, ensure_ascii=False),
+        original_filenames_json=(
+            json.dumps(payload.original_filenames, ensure_ascii=False)
+            if payload.original_filenames
+            else None
+        ),
+        output_oss_prefix=output_prefix,
+        status="pending",
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    state = request.app.state
+
+    async def _runner() -> None:
+        await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
+
+    background_tasks.add_task(_runner)
+    return _job_to_out(job)
+
+
+@router.get("/{job_id}", response_model=SubtitleEraseJobOut)
+async def get_subtitle_erase_job(
+    job_id: str, session: AsyncSession = Depends(get_session)
+) -> SubtitleEraseJobOut:
+    job = await session.get(VideoSubtitleEraseJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return _job_to_out(job)
+
+
+@router.post(
+    "/{job_id}/retry",
+    response_model=SubtitleEraseJobOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def retry_failed_items(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
+) -> SubtitleEraseJobOut:
+    job = await session.get(VideoSubtitleEraseJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    items: list[dict] = json.loads(job.items_json or "[]")
+    failed_indices = [i for i, it in enumerate(items) if it.get("status") == "failed"]
+    if not failed_indices:
+        raise HTTPException(status_code=400, detail="没有可重试的失败项")
+
+    for idx in failed_indices:
+        items[idx]["status"] = "pending"
+        items[idx]["stage"] = "pending"
+        for f in RETRY_FIELDS:
+            items[idx][f] = None
+    job.items_json = json.dumps(items, ensure_ascii=False)
+    job.status = "running"
+    job.error_message = None
+    job.completed_at = None
+    await session.commit()
+    await session.refresh(job)
+
+    state = request.app.state
+
+    async def _runner() -> None:
+        await run_subtitle_erase_translate_job(
+            state.db, state.settings, state.registry, job.id, only_indices=failed_indices
+        )
+
+    background_tasks.add_task(_runner)
+    return _job_to_out(job)
+
+
+@router.get("", response_model=list[SubtitleEraseJobSummary])
+async def list_subtitle_erase_jobs(
+    limit: int = 20,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_session),
+) -> list[SubtitleEraseJobSummary]:
+    rows = await session.scalars(
+        select(VideoSubtitleEraseJob)
+        .order_by(VideoSubtitleEraseJob.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_job_to_summary(j) for j in rows]

@@ -19,6 +19,7 @@ from app.routers import (
     model_catalog,
     prompt_templates,
     scripts,
+    subtitle_erase,
     translations,
     video_jobs,
     video_subtitle,
@@ -81,4 +82,5 @@ def create_app() -> FastAPI:
     app.include_router(video_jobs.router, prefix=settings.api_prefix)
     app.include_router(video_super_resolution.router, prefix=settings.api_prefix)
     app.include_router(video_subtitle.router, prefix=settings.api_prefix)
+    app.include_router(subtitle_erase.router, prefix=settings.api_prefix)
     return app

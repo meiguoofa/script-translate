@@ -10,6 +10,9 @@ import { SuperResolutionDetailPage } from "./pages/SuperResolutionDetailPage";
 import { SuperResolutionHistoryPage } from "./pages/SuperResolutionHistoryPage";
 import { SuperResolutionPage } from "./pages/SuperResolutionPage";
 import { SubtitleDetailPage } from "./pages/SubtitleDetailPage";
+import { SubtitleEraseDetailPage } from "./pages/SubtitleEraseDetailPage";
+import { SubtitleEraseHistoryPage } from "./pages/SubtitleEraseHistoryPage";
+import { SubtitleErasePage } from "./pages/SubtitleErasePage";
 import { SubtitleHistoryPage } from "./pages/SubtitleHistoryPage";
 import { SubtitlePage } from "./pages/SubtitlePage";
 import { UploadPage } from "./pages/UploadPage";
@@ -33,6 +36,9 @@ export default function App() {
           <Route path="/subtitle" element={<SubtitlePage />} />
           <Route path="/subtitle/history" element={<SubtitleHistoryPage />} />
           <Route path="/subtitle/:jobId" element={<SubtitleDetailPage />} />
+          <Route path="/subtitle-erase" element={<SubtitleErasePage />} />
+          <Route path="/subtitle-erase/history" element={<SubtitleEraseHistoryPage />} />
+          <Route path="/subtitle-erase/:jobId" element={<SubtitleEraseDetailPage />} />
           <Route path="/prompts" element={<PromptTemplatesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/scripts/:scriptId" element={<ScriptViewerPage />} />

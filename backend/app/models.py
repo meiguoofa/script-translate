@@ -203,3 +203,60 @@ class VideoSubtitleJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class VideoSubtitleEraseJob(Base):
+    """视频字幕擦除 + 翻译任务（基于阿里云 IMS/ICE）。
+
+    流程：CaptionExtraction → VideoDetext(基础/高级) → 翻译(阿里云/LLM) → SubmitVideoTranslationJob 烧录 → 输出 mp4
+    与 video_subtitle_jobs（videorecog + ffmpeg 烧录）独立共存。
+    """
+
+    __tablename__ = "video_subtitle_erase_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    drama_count: Mapped[int] = mapped_column(Integer, default=0)
+    video_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 流程模式
+    detext_mode: Mapped[str] = mapped_column(String(16), default="advanced")  # basic / advanced
+    translate_mode: Mapped[str] = mapped_column(String(16), default="aliyun")  # aliyun / llm
+    source_lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_lang: Mapped[str] = mapped_column(String(16))
+    model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # QPS（全工程共享限流）
+    qps: Mapped[int] = mapped_column(Integer, default=10)
+
+    # 字幕提取参数（前端可调）
+    caption_fps: Mapped[int] = mapped_column(Integer, default=5)
+    caption_lang: Mapped[str] = mapped_column(String(16), default="ch_ml")
+    caption_track: Mapped[str] = mapped_column(String(16), default="main")
+    caption_roi: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON "[[top,bottom],[left,right]]"
+    caption_sep: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # 字幕擦除参数
+    detext_limit_region: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON "[[x,y,w,h]]"
+
+    # 字幕烧录参数
+    burn_font_size: Mapped[int] = mapped_column(Integer, default=72)
+    burn_font_color: Mapped[str] = mapped_column(String(16), default="#FFFFFF")
+    burn_font_color_opacity: Mapped[float] = mapped_column(Numeric(3, 2), default=1.0)
+    burn_x: Mapped[float] = mapped_column(Numeric(3, 2), default=0.5)
+    burn_y: Mapped[float] = mapped_column(Numeric(3, 2), default=0.82)
+    burn_text_width: Mapped[float] = mapped_column(Numeric(3, 2), default=0.9)
+
+    items_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_oss_prefix: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
