@@ -259,7 +259,17 @@ export function SubtitleErasePage() {
 
               <div className="flex flex-col gap-1.5">
                 <Label>翻译模式</Label>
-                <Select value={translateMode} onValueChange={(v) => setTranslateMode(v as "aliyun" | "llm")}>
+                <Select
+                  value={translateMode}
+                  onValueChange={(v) => {
+                    const mode = v as "aliyun" | "llm";
+                    setTranslateMode(mode);
+                    // 切到阿里云模式时若源语言是 auto（不支持），回落到 zh
+                    if (mode === "aliyun" && sourceLang === "auto") {
+                      setSourceLang("zh");
+                    }
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -272,20 +282,28 @@ export function SubtitleErasePage() {
 
               <div className="flex flex-col gap-1.5">
                 <Label>源语言</Label>
-                <Select value={sourceLang} onValueChange={setSourceLang} disabled={translateMode === "llm"}>
+                <Select
+                  value={sourceLang}
+                  onValueChange={setSourceLang}
+                  disabled={translateMode === "llm"}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SOURCE_LANGS.map((l) => (
-                      <SelectItem key={l.value} value={l.value}>
-                        {l.label}
-                      </SelectItem>
-                    ))}
+                    {SOURCE_LANGS.filter((l) => translateMode === "llm" || l.value !== "auto").map(
+                      (l) => (
+                        <SelectItem key={l.value} value={l.value}>
+                          {l.label}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  阿里云翻译模式必填；LLM 模式由模型自动识别
+                  {translateMode === "aliyun"
+                    ? "阿里云翻译必须明确源语言；如需自动识别，请切换为 LLM 翻译"
+                    : "LLM 模式由模型自动识别"}
                 </p>
               </div>
 

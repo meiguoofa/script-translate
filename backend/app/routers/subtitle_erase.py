@@ -203,11 +203,17 @@ async def create_subtitle_erase_job(
                 status_code=400,
                 detail="LLM 翻译模式必须提供 model_provider 和 model_name",
             )
-    if payload.translate_mode == "aliyun" and not payload.source_lang:
-        raise HTTPException(
-            status_code=400,
-            detail="阿里云翻译模式必须提供 source_lang",
-        )
+    if payload.translate_mode == "aliyun":
+        if not payload.source_lang:
+            raise HTTPException(
+                status_code=400,
+                detail="阿里云翻译模式必须提供 source_lang",
+            )
+        if payload.source_lang == "auto":
+            raise HTTPException(
+                status_code=400,
+                detail="阿里云翻译模式不支持源语言 'auto'：IMS 字幕级翻译必须明确源语言。请选择具体语言，或切换为 LLM 翻译模式",
+            )
 
     existing = await session.get(VideoSubtitleEraseJob, payload.job_id)
     if existing is not None:
