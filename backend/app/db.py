@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy.engine import make_url
+from sqlalchemy import event
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -13,6 +14,39 @@ logger = logging.getLogger("app.db")
 
 class Base(DeclarativeBase):
     pass
+
+
+def _apply_sqlite_pragmas(database_url: str) -> None:
+    """SQLite 性能优化：在 engine 上挂 connect 事件，给每个连接设 PRAGMA。
+
+    - journal_mode=WAL：读写不互锁，写不阻塞读；后台 runner 写状态时前端查询不卡
+    - synchronous=NORMAL：WAL 模式下足够安全，比 FULL 快 5-10 倍
+    - cache_size=-65536：64MB 页缓存（默认 2MB），减少磁盘读
+    - mmap_size=268435456：256MB 内存映射，对大表（script_lines 5万+行）查询快
+    - temp_store=MEMORY：临时表和索引放内存
+    - foreign_keys=ON：开外键约束
+    """
+
+    if not database_url.startswith("sqlite"):
+        return
+
+
+def _register_pragma_listener(engine: AsyncEngine, database_url: str) -> None:
+    if not database_url.startswith("sqlite"):
+        return
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _record):  # noqa: ANN001
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=-65536")
+            cursor.execute("PRAGMA mmap_size=268435456")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 def _backup_sqlite_file(database_url: str) -> None:
@@ -46,6 +80,7 @@ class Database:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
         self.engine: AsyncEngine = create_async_engine(database_url, future=True)
+        _register_pragma_listener(self.engine, database_url)
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False, class_=AsyncSession)
         self._initialized = False
         self._lock = asyncio.Lock()
