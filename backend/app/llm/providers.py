@@ -6,7 +6,7 @@ from openai import AsyncOpenAI
 from app.llm.base import BaseLLMProvider, TranslationBatchLine, TranslationBatchResult
 
 
-LINE_RE = re.compile(r"^(L\d{3})\s*=\s*(.+)$")
+LINE_RE = re.compile(r"^(L\d{3,4})\s*=\s*(.+)$")
 
 
 def build_prompt(target_lang: str, context: str, lines: list[TranslationBatchLine]) -> str:
