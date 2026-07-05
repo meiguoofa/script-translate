@@ -269,10 +269,12 @@ export function SubtitleErasePage() {
                   onValueChange={(v) => {
                     const mode = v as "aliyun" | "llm";
                     setTranslateMode(mode);
-                    // 切到阿里云模式时若源语言是 auto（不支持），回落到 zh
-                    if (mode === "aliyun" && sourceLang === "auto") {
-                      setSourceLang("zh");
+                    // 切到阿里云翻译时必须搭配阿里云烧录（IMS 一体）
+                    if (mode === "aliyun") {
+                      setBurnMode("aliyun");
+                      if (sourceLang === "auto") setSourceLang("zh");
                     }
+                    // LLM 翻译时若烧录是 aliyun，保持（合法：LLM 译 + IMS 烧）
                   }}
                 >
                   <SelectTrigger>
@@ -292,9 +294,12 @@ export function SubtitleErasePage() {
                   onValueChange={(v) => {
                     const mode = v as "local" | "aliyun";
                     setBurnMode(mode);
-                    // 切到阿里云烧录时若源语言是 auto（不支持），回落到 zh
-                    if (mode === "aliyun" && sourceLang === "auto") {
-                      setSourceLang("zh");
+                    // 本机烧录必须搭配 LLM 翻译（IMS 翻译不单独提供 SRT 译文）
+                    if (mode === "local") {
+                      setTranslateMode("llm");
+                    } else {
+                      // 阿里云烧录：源语言不能是 auto
+                      if (sourceLang === "auto") setSourceLang("zh");
                     }
                   }}
                 >

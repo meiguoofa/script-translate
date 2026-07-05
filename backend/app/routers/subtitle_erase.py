@@ -227,6 +227,15 @@ async def create_subtitle_erase_job(
                 status_code=400,
                 detail="阿里云烧录模式（IMS）必须明确 source_lang，不能为 auto",
             )
+    # 矛盾组合：aliyun 翻译 + local 烧录。IMS 翻译是和烧录一体的 API，
+    # 不可能"IMS 翻译完 SRT 再本地烧录"——IMS 不单独提供翻译 SRT 文本的服务。
+    # 真正的边界：translate_mode=aliyun 时只能 burn_mode=aliyun（IMS 一体）；
+    # burn_mode=local 时必须 translate_mode=llm（LLM 译 SRT 后本地 ffmpeg 烧录）。
+    if payload.translate_mode == "aliyun" and payload.burn_mode == "local":
+        raise HTTPException(
+            status_code=400,
+            detail="阿里云翻译模式必须搭配阿里云烧录（IMS 一体）；本机烧录请选 LLM 翻译模式",
+        )
 
     existing = await session.get(VideoSubtitleEraseJob, payload.job_id)
     if existing is not None:
