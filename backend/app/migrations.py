@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, MetaData, String, Table, func, inspect, select
+from sqlalchemy import Column, DateTime, MetaData, String, Table, func, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db import Base
@@ -23,6 +23,7 @@ CREATE_VIDEO_SCRIPT_JOBS_VERSION = "20260614_002_create_video_script_jobs"
 CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION = "20260624_001_create_video_super_resolution_jobs"
 CREATE_VIDEO_SUBTITLE_JOBS_VERSION = "20260627_001_create_video_subtitle_jobs"
 CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION = "20260704_001_create_video_subtitle_erase_jobs"
+ADD_SUBTITLE_ERASE_BURN_MODE_VERSION = "20260705_001_add_subtitle_erase_burn_mode"
 
 
 metadata = MetaData()
@@ -76,6 +77,12 @@ async def run_migrations(connection: AsyncConnection) -> None:
             schema_migrations.insert().values(version=CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION)
         )
 
+    if ADD_SUBTITLE_ERASE_BURN_MODE_VERSION not in applied:
+        await connection.run_sync(_add_subtitle_erase_burn_mode_columns)
+        await connection.execute(
+            schema_migrations.insert().values(version=ADD_SUBTITLE_ERASE_BURN_MODE_VERSION)
+        )
+
     await _seed_default_prompt(connection)
 
 
@@ -119,6 +126,30 @@ def _create_video_subtitle_erase_jobs(sync_connection) -> None:
     if VideoSubtitleEraseJob.__tablename__ in inspector.get_table_names():
         return
     VideoSubtitleEraseJob.__table__.create(sync_connection, checkfirst=True)
+
+
+def _add_subtitle_erase_burn_mode_columns(sync_connection) -> None:
+    """为 video_subtitle_erase_jobs 加 burn_mode/placement_mode/output_tos_prefix 列。
+
+    使用 ALTER TABLE ADD COLUMN（SQLite 支持），现有数据保留，新列带默认值。
+    """
+
+    inspector = inspect(sync_connection)
+    if VideoSubtitleEraseJob.__tablename__ not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns(VideoSubtitleEraseJob.__tablename__)}
+    if "burn_mode" not in cols:
+        sync_connection.execute(text(
+            "ALTER TABLE video_subtitle_erase_jobs ADD COLUMN burn_mode VARCHAR(16) DEFAULT 'local' NOT NULL"
+        ))
+    if "placement_mode" not in cols:
+        sync_connection.execute(text(
+            "ALTER TABLE video_subtitle_erase_jobs ADD COLUMN placement_mode VARCHAR(32) DEFAULT 'safe_bottom' NOT NULL"
+        ))
+    if "output_tos_prefix" not in cols:
+        sync_connection.execute(text(
+            "ALTER TABLE video_subtitle_erase_jobs ADD COLUMN output_tos_prefix TEXT"
+        ))
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

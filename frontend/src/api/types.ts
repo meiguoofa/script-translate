@@ -359,6 +359,8 @@ export type SubtitleEraseJobItemOut = {
   translation_status: string | null;
   output_video_oss_uri: string | null;
   output_public_url: string | null;
+  output_video_tos_uri: string | null;
+  output_video_tos_public_url: string | null;
   stage: SubtitleEraseItemStage;
   status: SubtitleEraseItemStatus;
   error: string | null;
@@ -371,6 +373,8 @@ export type SubtitleEraseJobOut = {
   video_count: number;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
+  burn_mode: "local" | "aliyun";
+  placement_mode: "safe_bottom" | "simple_bottom";
   source_lang: string | null;
   target_lang: string;
   model_provider: string | null;
@@ -391,6 +395,7 @@ export type SubtitleEraseJobOut = {
   items: SubtitleEraseJobItemOut[];
   original_filenames: string[] | null;
   output_oss_prefix: string;
+  output_tos_prefix: string | null;
   status: "pending" | "running" | "completed" | "failed";
   progress_message: string | null;
   error_message: string | null;
@@ -409,6 +414,7 @@ export type SubtitleEraseJobSummary = {
   video_count: number;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
+  burn_mode: "local" | "aliyun";
   target_lang: string;
   status: "pending" | "running" | "completed" | "failed";
   succeeded_count: number;
@@ -432,6 +438,8 @@ export type SubtitleEraseJobCreateInput = {
   title: string;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
+  burn_mode: "local" | "aliyun";
+  placement_mode: "safe_bottom" | "simple_bottom";
   source_lang?: string | null;
   target_lang: string;
   model_provider?: string | null;

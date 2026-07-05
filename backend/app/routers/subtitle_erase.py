@@ -73,6 +73,8 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
                 translation_status=it.get("translation_status"),
                 output_video_oss_uri=it.get("output_video_oss_uri"),
                 output_public_url=it.get("output_public_url"),
+                output_video_tos_uri=it.get("output_video_tos_uri"),
+                output_video_tos_public_url=it.get("output_video_tos_public_url"),
                 stage=it.get("stage", "pending"),
                 status=it.get("status", "pending"),
                 error=it.get("error"),
@@ -85,6 +87,8 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
         video_count=job.video_count,
         detext_mode=job.detext_mode,
         translate_mode=job.translate_mode,
+        burn_mode=job.burn_mode,
+        placement_mode=job.placement_mode,
         source_lang=job.source_lang,
         target_lang=job.target_lang,
         model_provider=job.model_provider,
@@ -105,6 +109,7 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
         items=items_out,
         original_filenames=filenames,
         output_oss_prefix=job.output_oss_prefix,
+        output_tos_prefix=job.output_tos_prefix,
         status=job.status,
         progress_message=job.progress_message,
         error_message=job.error_message,
@@ -130,6 +135,7 @@ def _job_to_summary(job: VideoSubtitleEraseJob) -> SubtitleEraseJobSummary:
         video_count=job.video_count,
         detext_mode=job.detext_mode,
         translate_mode=job.translate_mode,
+        burn_mode=job.burn_mode,
         target_lang=job.target_lang,
         status=job.status,
         succeeded_count=succeeded,
@@ -214,13 +220,25 @@ async def create_subtitle_erase_job(
                 status_code=400,
                 detail="阿里云翻译模式不支持源语言 'auto'：IMS 字幕级翻译必须明确源语言。请选择具体语言，或切换为 LLM 翻译模式",
             )
+    if payload.burn_mode == "aliyun":
+        # aliyun 烧录需要 IMS SubmitVideoTranslationJob，源语言规则同 aliyun 翻译模式
+        if not payload.source_lang or payload.source_lang == "auto":
+            raise HTTPException(
+                status_code=400,
+                detail="阿里云烧录模式（IMS）必须明确 source_lang，不能为 auto",
+            )
 
     existing = await session.get(VideoSubtitleEraseJob, payload.job_id)
     if existing is not None:
         raise HTTPException(status_code=409, detail="job_id 已存在")
 
-    output_prefix = (
+    output_oss_prefix = (
         f"oss://{settings.aliyun_oss_bucket}/"
+        f"{settings.oss_subtitle_erase_output_prefix.strip('/') or 'subtitle-erase-output'}/"
+        f"{payload.job_id}/"
+    )
+    output_tos_prefix = (
+        f"tos://{settings.tos_sg_bucket}/"
         f"{settings.oss_subtitle_erase_output_prefix.strip('/') or 'subtitle-erase-output'}/"
         f"{payload.job_id}/"
     )
@@ -247,6 +265,8 @@ async def create_subtitle_erase_job(
                 "translation_status": None,
                 "output_video_oss_uri": None,
                 "output_public_url": None,
+                "output_video_tos_uri": None,
+                "output_video_tos_public_url": None,
                 "stage": "pending",
                 "status": "pending",
                 "error": None,
@@ -262,6 +282,8 @@ async def create_subtitle_erase_job(
         video_count=len(payload.items),
         detext_mode=payload.detext_mode,
         translate_mode=payload.translate_mode,
+        burn_mode=payload.burn_mode,
+        placement_mode=payload.placement_mode,
         source_lang=payload.source_lang,
         target_lang=payload.target_lang,
         model_provider=payload.model_provider,
@@ -285,7 +307,8 @@ async def create_subtitle_erase_job(
             if payload.original_filenames
             else None
         ),
-        output_oss_prefix=output_prefix,
+        output_oss_prefix=output_oss_prefix,
+        output_tos_prefix=output_tos_prefix,
         status="pending",
     )
     session.add(job)

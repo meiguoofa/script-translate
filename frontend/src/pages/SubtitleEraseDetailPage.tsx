@@ -105,8 +105,11 @@ export function SubtitleEraseDetailPage() {
 
   const badge = JOB_BADGE[job.status];
   const isTerminal = job.status === "completed" || job.status === "failed";
+  // 优先 TOS（本机烧录输出），fallback 到 OSS（阿里云烧录输出）
+  const downloadUrl = (it: typeof job.items[number]) =>
+    it.output_video_tos_public_url || it.output_public_url;
   const succeededItems = job.items.filter(
-    (it) => it.status === "succeeded" && it.output_public_url
+    (it) => it.status === "succeeded" && downloadUrl(it)
   );
 
   // 按剧分组
@@ -119,9 +122,10 @@ export function SubtitleEraseDetailPage() {
 
   async function downloadAll() {
     for (const item of succeededItems) {
-      if (!item.output_public_url) continue;
+      const url = downloadUrl(item);
+      if (!url) continue;
       const a = document.createElement("a");
-      a.href = item.output_public_url;
+      a.href = url;
       a.download = `d${item.drama_index + 1}-e${item.episode_index + 1}-${item.filename}`;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
@@ -172,7 +176,8 @@ export function SubtitleEraseDetailPage() {
             </CardTitle>
             <CardDescription>
               {job.drama_count} 部剧 · {job.video_count} 集 · {job.detext_mode === "advanced" ? "高级版擦除" : "基础版擦除"} ·{" "}
-              {job.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {job.target_lang} ·
+              {job.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {job.target_lang} ·{" "}
+              {job.burn_mode === "local" ? "本机 ffmpeg 烧录" : "阿里云 IMS 烧录"} ·
               成功 {job.succeeded_count} · 失败 {job.failed_count}
             </CardDescription>
           </div>
@@ -263,9 +268,9 @@ export function SubtitleEraseDetailPage() {
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {item.output_public_url ? (
+                      {downloadUrl(item) ? (
                         <a
-                          href={item.output_public_url}
+                          href={downloadUrl(item)!}
                           target="_blank"
                           rel="noopener noreferrer"
                           download

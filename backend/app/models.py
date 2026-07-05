@@ -221,7 +221,9 @@ class VideoSubtitleEraseJob(Base):
 
     # 流程模式
     detext_mode: Mapped[str] = mapped_column(String(16), default="advanced")  # basic / advanced
-    translate_mode: Mapped[str] = mapped_column(String(16), default="aliyun")  # aliyun / llm
+    translate_mode: Mapped[str] = mapped_column(String(16), default="llm")  # aliyun / llm
+    burn_mode: Mapped[str] = mapped_column(String(16), default="local")  # local / aliyun
+    placement_mode: Mapped[str] = mapped_column(String(32), default="safe_bottom")  # safe_bottom / simple_bottom
     source_lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
     target_lang: Mapped[str] = mapped_column(String(16))
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -251,6 +253,7 @@ class VideoSubtitleEraseJob(Base):
     items_json: Mapped[str] = mapped_column(Text)
     original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     output_oss_prefix: Mapped[str] = mapped_column(Text)
+    output_tos_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

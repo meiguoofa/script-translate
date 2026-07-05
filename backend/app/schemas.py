@@ -458,7 +458,9 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     job_id: str
     title: str
     detext_mode: str = Field(default="advanced", pattern="^(basic|advanced)$")
-    translate_mode: str = Field(default="aliyun", pattern="^(aliyun|llm)$")
+    translate_mode: str = Field(default="llm", pattern="^(aliyun|llm)$")
+    burn_mode: str = Field(default="local", pattern="^(local|aliyun)$")
+    placement_mode: str = Field(default="safe_bottom", pattern="^(safe_bottom|simple_bottom)$")
     source_lang: str | None = None
     target_lang: str
     model_provider: str | None = None
@@ -507,6 +509,8 @@ class SubtitleEraseJobItemOut(BaseModel):
 
     output_video_oss_uri: str | None
     output_public_url: str | None
+    output_video_tos_uri: str | None
+    output_video_tos_public_url: str | None
 
     stage: str
     status: str
@@ -521,6 +525,8 @@ class SubtitleEraseJobOut(BaseModel):
 
     detext_mode: str
     translate_mode: str
+    burn_mode: str
+    placement_mode: str
     source_lang: str | None
     target_lang: str
     model_provider: str | None
@@ -545,6 +551,7 @@ class SubtitleEraseJobOut(BaseModel):
     items: list[SubtitleEraseJobItemOut]
     original_filenames: list[str] | None
     output_oss_prefix: str
+    output_tos_prefix: str | None
     status: str
     progress_message: str | None
     error_message: str | None
@@ -563,6 +570,7 @@ class SubtitleEraseJobSummary(BaseModel):
     video_count: int
     detext_mode: str
     translate_mode: str
+    burn_mode: str
     target_lang: str
     status: str
     succeeded_count: int

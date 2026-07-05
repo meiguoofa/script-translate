@@ -101,13 +101,28 @@ def srt_to_ass(
     video_w: int,
     video_h: int,
     placement_mode: str = "safe_bottom",
+    font_size: int | None = None,
+    font_color: str = "#FFFFFF",
+    font_color_opacity: float = 1.0,
+    pos_x_ratio: float | None = None,
+    pos_y_ratio: float | None = None,
+    text_width_ratio: float = 0.9,
 ) -> str:
     """把 SRT entries 转成 ASS 字幕。
 
     safe_bottom: 字幕放在底部安全区中线（搭配 FFmpeg scale+pad 黑边使用）。
     simple_bottom: 字幕直接放在距底部 60px 的位置。
+
+    可选参数（用户自定义烧录样式，不传则用默认）：
+    - font_size: 字号；None 时按 video_h // 30 自动算
+    - font_color: hex 颜色，如 "#FFFFFF"
+    - font_color_opacity: 0-1
+    - pos_x_ratio / pos_y_ratio: 0-1，相对视频尺寸的字幕位置
+    - text_width_ratio: 0.1-1，字幕文本宽度占比（仅影响 ASS Style MarginL/MarginR）
     """
-    font_size = max(28, video_h // 30)
+
+    if font_size is None:
+        font_size = max(28, video_h // 30)
     outline = max(2, video_h // 500)
     margin_v = max(40, video_h // 18)
 
@@ -120,7 +135,15 @@ def srt_to_ass(
     else:  # simple_bottom
         pos_y = video_h - 60
 
-    pos_x = video_w // 2
+    if pos_y_ratio is not None:
+        pos_y = int(video_h * pos_y_ratio)
+    pos_x = int(video_w * (pos_x_ratio if pos_x_ratio is not None else 0.5))
+
+    # text_width_ratio → ASS Style MarginL/MarginR
+    margin_lr = max(20, int(video_w * (1.0 - text_width_ratio) / 2))
+
+    # hex "#FFFFFF" → ASS "&H00BBGGRR"
+    ass_color = _hex_to_ass_color(font_color, font_color_opacity)
 
     lines: list[str] = []
     lines.append("[Script Info]")
@@ -135,8 +158,8 @@ def srt_to_ass(
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
     )
     lines.append(
-        f"Style: Default,Noto Sans CJK SC,{font_size},&H00FFFFFF,&H00000000,&H66000000,"
-        f"0,0,0,0,100,100,0,0,1,{outline},0,2,20,20,{margin_v},1"
+        f"Style: Default,Noto Sans CJK SC,{font_size},{ass_color},&H00000000,&H66000000,"
+        f"0,0,0,0,100,100,0,0,1,{outline},0,2,{margin_lr},{margin_lr},{margin_v},1"
     )
     lines.append("")
     lines.append("[Events]")
@@ -150,6 +173,22 @@ def srt_to_ass(
             f"Default,,0,0,0,,{{\\an2\\pos({pos_x},{pos_y})}}{text}"
         )
     return "\n".join(lines) + "\n"
+
+
+def _hex_to_ass_color(hex_color: str, opacity: float) -> str:
+    """'#FFFFFF' + opacity 1.0 → '&H00FFFFFF'（ASS BGR hex，前两位 alpha）。
+
+    ASS alpha: 00 = 不透明, FF = 全透明。
+    opacity=1.0 → alpha=00；opacity=0.0 → alpha=FF。
+    """
+
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6:
+        hex_color = "FFFFFF"
+    # 转 BGR
+    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+    alpha = int(round((1.0 - max(0.0, min(1.0, opacity))) * 255))
+    return f"&H{alpha:02X}{b}{g}{r}".upper()
 
 
 def safe_area_height(video_h: int) -> int:

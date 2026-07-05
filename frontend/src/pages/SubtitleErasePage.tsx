@@ -62,7 +62,9 @@ export function SubtitleErasePage() {
   const [models, setModels] = useState<ModelOption[]>([]);
 
   const [detextMode, setDetextMode] = useState<"basic" | "advanced">("advanced");
-  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">("aliyun");
+  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">("llm");
+  const [burnMode, setBurnMode] = useState<"local" | "aliyun">("local");
+  const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">("safe_bottom");
   const [sourceLang, setSourceLang] = useState<string>("auto");
   const [targetLang, setTargetLang] = useState<string>("zh");
   const [modelProvider, setModelProvider] = useState<string>("");
@@ -108,7 +110,8 @@ export function SubtitleErasePage() {
     Boolean(title.trim()) &&
     totalFiles > 0 &&
     !submitting &&
-    (translateMode === "aliyun" ? Boolean(sourceLang) : Boolean(modelProvider && modelName));
+    (translateMode === "aliyun" ? Boolean(sourceLang) : Boolean(modelProvider && modelName)) &&
+    (burnMode === "aliyun" ? Boolean(sourceLang) && sourceLang !== "auto" : true);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,7 +165,9 @@ export function SubtitleErasePage() {
         title: title.trim(),
         detext_mode: detextMode,
         translate_mode: translateMode,
-        source_lang: translateMode === "aliyun" ? sourceLang : null,
+        burn_mode: burnMode,
+        placement_mode: placementMode,
+        source_lang: translateMode === "aliyun" || burnMode === "aliyun" ? sourceLang : null,
         target_lang: targetLang,
         model_provider: translateMode === "llm" ? modelProvider : null,
         model_name: translateMode === "llm" ? modelName : null,
@@ -274,8 +279,47 @@ export function SubtitleErasePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="aliyun">阿里云翻译 API（SubmitVideoTranslationJob）</SelectItem>
-                    <SelectItem value="llm">工程内 LLM 翻译（豆包/Deepseek 等）+ 阿里云烧录</SelectItem>
+                    <SelectItem value="llm">工程内 LLM 翻译（豆包/Deepseek 等，默认）</SelectItem>
+                    <SelectItem value="aliyun">阿里云翻译 API（需 IMS 订阅）</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label>烧录模式</Label>
+                <Select
+                  value={burnMode}
+                  onValueChange={(v) => {
+                    const mode = v as "local" | "aliyun";
+                    setBurnMode(mode);
+                    // 切到阿里云烧录时若源语言是 auto（不支持），回落到 zh
+                    if (mode === "aliyun" && sourceLang === "auto") {
+                      setSourceLang("zh");
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">本机 ffmpeg 烧录（默认，输出 TOS 新加坡）</SelectItem>
+                    <SelectItem value="aliyun">阿里云 IMS 烧录（需 IMS 视频翻译套餐）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  本机烧录不依赖 IMS 订阅；输出上传到火山引擎 TOS 新加坡桶，服务器零带宽
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label>字幕放置模式</Label>
+                <Select value={placementMode} onValueChange={(v) => setPlacementMode(v as "safe_bottom" | "simple_bottom")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="safe_bottom">safe_bottom（底部加黑边，字幕在黑边内）</SelectItem>
+                    <SelectItem value="simple_bottom">simple_bottom（直接烧到原画面底部）</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -285,25 +329,29 @@ export function SubtitleErasePage() {
                 <Select
                   value={sourceLang}
                   onValueChange={setSourceLang}
-                  disabled={translateMode === "llm"}
+                  disabled={translateMode === "llm" && burnMode === "local"}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SOURCE_LANGS.filter((l) => translateMode === "llm" || l.value !== "auto").map(
-                      (l) => (
-                        <SelectItem key={l.value} value={l.value}>
-                          {l.label}
-                        </SelectItem>
-                      )
-                    )}
+                    {SOURCE_LANGS.filter(
+                      (l) =>
+                        (translateMode === "llm" && burnMode === "local") ||
+                        l.value !== "auto"
+                    ).map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {translateMode === "aliyun"
-                    ? "阿里云翻译必须明确源语言；如需自动识别，请切换为 LLM 翻译"
-                    : "LLM 模式由模型自动识别"}
+                  {(translateMode === "llm" && burnMode === "local")
+                    ? "LLM 翻译 + 本机烧录：源语言由模型自动识别"
+                    : translateMode === "aliyun" || burnMode === "aliyun"
+                      ? "阿里云翻译/烧录必须明确源语言；如需自动识别，请切换为 LLM + 本机烧录"
+                      : ""}
                 </p>
               </div>
 
@@ -527,6 +575,8 @@ export function SubtitleErasePage() {
             <SummaryRow label="总集数" value={String(totalFiles)} />
             <SummaryRow label="擦除模式" value={detextMode === "advanced" ? "高级版" : "基础版"} />
             <SummaryRow label="翻译模式" value={translateMode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} />
+            <SummaryRow label="烧录模式" value={burnMode === "local" ? "本机 ffmpeg" : "阿里云 IMS"} />
+            <SummaryRow label="字幕放置" value={placementMode === "safe_bottom" ? "safe_bottom" : "simple_bottom"} />
             <SummaryRow label="目标语言" value={TARGET_LANGS.find((l) => l.value === targetLang)?.label || targetLang} />
             <SummaryRow label="QPS" value={String(qps)} />
           </CardContent>

@@ -99,6 +99,18 @@ class AliyunOSSClient:
         bucket = self._fresh_bucket()
         bucket.put_object(key, text.encode("utf-8"), headers={"Content-Type": content_type})
 
+    def download_object_to_file(self, key: str, file_path: str) -> None:
+        """流式下载 OSS 对象到本地文件（用于下载 clean.mp4 做 ffmpeg 烧录）。"""
+
+        bucket = self._fresh_bucket()
+        stream = bucket.get_object(key)
+        try:
+            with open(file_path, "wb") as f:
+                for chunk in stream:
+                    f.write(chunk)
+        finally:
+            stream.close()
+
     def presign_put(
         self, key: str, content_type: str | None = None, expires_in: int = 3600
     ) -> PresignedPutResult:
