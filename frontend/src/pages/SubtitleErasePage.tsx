@@ -37,6 +37,7 @@ const TARGET_LANGS = [
   { value: "th", label: "泰语" },
   { value: "id", label: "印尼语" },
   { value: "ms", label: "马来语" },
+  { value: "pt", label: "葡萄牙语" },
 ];
 
 const SOURCE_LANGS = [
