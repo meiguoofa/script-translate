@@ -54,6 +54,65 @@ const CAPTION_LANGS = [
   { value: "ko", label: "韩文" },
 ];
 
+const FORM_PARAMS_STORAGE_KEY = "subtitle-erase-form-params";
+
+type FormParams = {
+  detextMode: "basic" | "advanced";
+  translateMode: "aliyun" | "llm";
+  burnMode: "local" | "aliyun";
+  placementMode: "safe_bottom" | "simple_bottom";
+  sourceLang: string;
+  targetLang: string;
+  modelProvider: string;
+  modelName: string;
+  qps: number;
+  captionFps: number;
+  captionLang: string;
+  captionTrack: string;
+  captionRoi: string;
+  captionSep: boolean;
+  detextLimitRegion: string;
+  burnFontSize: number;
+  burnFontColor: string;
+  burnX: number;
+  burnY: number;
+  burnTextWidth: number;
+};
+
+const DEFAULT_FORM_PARAMS: FormParams = {
+  detextMode: "advanced",
+  translateMode: "llm",
+  burnMode: "local",
+  placementMode: "safe_bottom",
+  sourceLang: "auto",
+  targetLang: "zh",
+  modelProvider: "",
+  modelName: "",
+  qps: 10,
+  captionFps: 5,
+  captionLang: "ch_ml",
+  captionTrack: "main",
+  captionRoi: "",
+  captionSep: false,
+  detextLimitRegion: "",
+  burnFontSize: 72,
+  burnFontColor: "#FFFFFF",
+  burnX: 0.5,
+  burnY: 0.82,
+  burnTextWidth: 0.9,
+};
+
+function loadStoredFormParams(): FormParams {
+  try {
+    const raw = localStorage.getItem(FORM_PARAMS_STORAGE_KEY);
+    if (!raw) return DEFAULT_FORM_PARAMS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_FORM_PARAMS, ...parsed };
+  } catch {
+    return DEFAULT_FORM_PARAMS;
+  }
+}
+
 export function SubtitleErasePage() {
   const navigate = useNavigate();
   const [verified, setVerified] = useState<boolean>(Boolean(getPassphrase()));
@@ -61,28 +120,29 @@ export function SubtitleErasePage() {
   const [dramas, setDramas] = useState<Drama[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
 
-  const [detextMode, setDetextMode] = useState<"basic" | "advanced">("advanced");
-  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">("llm");
-  const [burnMode, setBurnMode] = useState<"local" | "aliyun">("local");
-  const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">("safe_bottom");
-  const [sourceLang, setSourceLang] = useState<string>("auto");
-  const [targetLang, setTargetLang] = useState<string>("zh");
-  const [modelProvider, setModelProvider] = useState<string>("");
-  const [modelName, setModelName] = useState<string>("");
-  const [qps, setQps] = useState<number>(10);
+  const [stored] = useState(loadStoredFormParams);
+  const [detextMode, setDetextMode] = useState<"basic" | "advanced">(stored.detextMode);
+  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">(stored.translateMode);
+  const [burnMode, setBurnMode] = useState<"local" | "aliyun">(stored.burnMode);
+  const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">(stored.placementMode);
+  const [sourceLang, setSourceLang] = useState<string>(stored.sourceLang);
+  const [targetLang, setTargetLang] = useState<string>(stored.targetLang);
+  const [modelProvider, setModelProvider] = useState<string>(stored.modelProvider);
+  const [modelName, setModelName] = useState<string>(stored.modelName);
+  const [qps, setQps] = useState<number>(stored.qps);
 
-  const [captionFps, setCaptionFps] = useState<number>(5);
-  const [captionLang, setCaptionLang] = useState<string>("ch_ml");
-  const [captionTrack, setCaptionTrack] = useState<string>("main");
-  const [captionRoi, setCaptionRoi] = useState<string>("");
-  const [captionSep, setCaptionSep] = useState<boolean>(false);
+  const [captionFps, setCaptionFps] = useState<number>(stored.captionFps);
+  const [captionLang, setCaptionLang] = useState<string>(stored.captionLang);
+  const [captionTrack, setCaptionTrack] = useState<string>(stored.captionTrack);
+  const [captionRoi, setCaptionRoi] = useState<string>(stored.captionRoi);
+  const [captionSep, setCaptionSep] = useState<boolean>(stored.captionSep);
 
-  const [detextLimitRegion, setDetextLimitRegion] = useState<string>("");
-  const [burnFontSize, setBurnFontSize] = useState<number>(72);
-  const [burnFontColor, setBurnFontColor] = useState<string>("#FFFFFF");
-  const [burnX, setBurnX] = useState<number>(0.5);
-  const [burnY, setBurnY] = useState<number>(0.82);
-  const [burnTextWidth, setBurnTextWidth] = useState<number>(0.9);
+  const [detextLimitRegion, setDetextLimitRegion] = useState<string>(stored.detextLimitRegion);
+  const [burnFontSize, setBurnFontSize] = useState<number>(stored.burnFontSize);
+  const [burnFontColor, setBurnFontColor] = useState<string>(stored.burnFontColor);
+  const [burnX, setBurnX] = useState<number>(stored.burnX);
+  const [burnY, setBurnY] = useState<number>(stored.burnY);
+  const [burnTextWidth, setBurnTextWidth] = useState<number>(stored.burnTextWidth);
 
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -92,14 +152,39 @@ export function SubtitleErasePage() {
     getModels()
       .then((list) => {
         setModels(list);
-        const def = list.find((m) => m.default) ?? list[0];
-        if (def) {
-          setModelProvider(def.provider);
-          setModelName(def.name);
+        // 仅当上次没有保存过 provider/model 时，才用默认值
+        if (!modelProvider && !modelName) {
+          const def = list.find((m) => m.default) ?? list[0];
+          if (def) {
+            setModelProvider(def.provider);
+            setModelName(def.name);
+          }
         }
       })
       .catch(() => toast.error("模型列表加载失败"));
-  }, [verified]);
+  }, [verified]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 表单参数变化时持久化到 localStorage（标题和上传文件不保存）
+  useEffect(() => {
+    const params: FormParams = {
+      detextMode, translateMode, burnMode, placementMode,
+      sourceLang, targetLang, modelProvider, modelName, qps,
+      captionFps, captionLang, captionTrack, captionRoi, captionSep,
+      detextLimitRegion, burnFontSize, burnFontColor,
+      burnX, burnY, burnTextWidth,
+    };
+    try {
+      localStorage.setItem(FORM_PARAMS_STORAGE_KEY, JSON.stringify(params));
+    } catch {
+      // 忽略 localStorage 写入失败（如隐私模式）
+    }
+  }, [
+    detextMode, translateMode, burnMode, placementMode,
+    sourceLang, targetLang, modelProvider, modelName, qps,
+    captionFps, captionLang, captionTrack, captionRoi, captionSep,
+    detextLimitRegion, burnFontSize, burnFontColor,
+    burnX, burnY, burnTextWidth,
+  ]);
 
   if (!verified) {
     return <PassphraseGate onVerified={() => setVerified(true)} />;
