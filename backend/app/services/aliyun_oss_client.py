@@ -54,7 +54,6 @@ class AliyunOSSClient:
             f"https://{self._settings.aliyun_oss_endpoint}",
             self._settings.aliyun_oss_bucket,
             connect_timeout=60,
-            read_timeout=300,  # 5 分钟，跨地域拉大文件（clean.mp4 ~200MB）需要
         )
 
     @property
