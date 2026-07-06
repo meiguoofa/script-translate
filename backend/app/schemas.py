@@ -511,6 +511,9 @@ class SubtitleEraseJobItemOut(BaseModel):
     output_public_url: str | None
     output_video_tos_uri: str | None
     output_video_tos_public_url: str | None
+    output_video_bj_tos_uri: str | None
+    output_video_bj_tos_public_url: str | None
+    bj_fetch_error: str | None
 
     stage: str
     status: str

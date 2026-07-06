@@ -361,6 +361,9 @@ export type SubtitleEraseJobItemOut = {
   output_public_url: string | null;
   output_video_tos_uri: string | null;
   output_video_tos_public_url: string | null;
+  output_video_bj_tos_uri: string | null;
+  output_video_bj_tos_public_url: string | null;
+  bj_fetch_error: string | null;
   stage: SubtitleEraseItemStage;
   status: SubtitleEraseItemStatus;
   error: string | null;

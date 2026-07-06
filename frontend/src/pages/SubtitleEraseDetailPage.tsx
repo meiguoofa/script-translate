@@ -105,9 +105,11 @@ export function SubtitleEraseDetailPage() {
 
   const badge = JOB_BADGE[job.status];
   const isTerminal = job.status === "completed" || job.status === "failed";
-  // 优先 TOS（本机烧录输出），fallback 到 OSS（阿里云烧录输出）
+  // 优先北京 TOS（国内用户快）→ 新加坡 TOS（服务器内网上传的）→ 阿里云 OSS（IMS 烧录）
   const downloadUrl = (it: typeof job.items[number]) =>
-    it.output_video_tos_public_url || it.output_public_url;
+    it.output_video_bj_tos_public_url ||
+    it.output_video_tos_public_url ||
+    it.output_public_url;
   const succeededItems = job.items.filter(
     (it) => it.status === "succeeded" && downloadUrl(it)
   );
@@ -265,6 +267,11 @@ export function SubtitleEraseDetailPage() {
                       </div>
                       {item.error ? (
                         <p className="text-xs text-destructive">错误：{item.error}</p>
+                      ) : null}
+                      {item.bj_fetch_error && !item.output_video_bj_tos_public_url ? (
+                        <p className="text-xs text-muted-foreground" title={item.bj_fetch_error}>
+                          国内源同步失败，已用海外源兜底
+                        </p>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">

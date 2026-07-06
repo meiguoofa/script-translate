@@ -21,6 +21,7 @@ from app.services.rate_limiter import RateLimiter
 from app.services.srt_cleaner import clean_srt
 from app.services.srt_utils import parse_srt, srt_to_ass
 from app.services.subtitle_translator import translate_srt
+from app.services.tos_fetch_client import TOSFetchClient
 from app.services.tos_singapore_client import TOSSingaporeClient
 
 logger = logging.getLogger("subtitle_erase_translate_runner")
@@ -53,6 +54,9 @@ RETRY_FIELDS = (
     "output_public_url",
     "output_video_tos_uri",
     "output_video_tos_public_url",
+    "output_video_bj_tos_uri",
+    "output_video_bj_tos_public_url",
+    "bj_fetch_error",
     "error",
 )
 
@@ -181,6 +185,13 @@ async def _burn_local_and_upload_tos(
     except RuntimeError as exc:
         raise RuntimeError(f"TOS 新加坡客户端初始化失败: {exc}") from exc
 
+    # 北京 TOS fetch client（best-effort，失败不影响 SG 上传和 item 成功）
+    try:
+        tos_bj = TOSFetchClient(settings)
+    except RuntimeError as exc:
+        logger.warning("TOS 北京 fetch client 初始化失败，跨区域复制禁用: %s", exc)
+        tos_bj = None
+
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"burn-{job_id}-{index}-"))
     try:
         input_video_tmp = tmp_dir / f"{index:02d}-input.mp4"
@@ -236,6 +247,26 @@ async def _burn_local_and_upload_tos(
         item["output_video_tos_public_url"] = tos.public_url(out_key)
         item["translation_status"] = None  # 本地烧录无 IMS 任务
         await _persist_items(db, job_id, items)
+
+        # 5.5 跨区域复制 SG → 北京 TOS（best-effort，失败不影响 item 成功）
+        if tos_bj is not None:
+            try:
+                sg_public_url = item["output_video_tos_public_url"]
+                bj_tos_uri, bj_public_url, _bj_size = await asyncio.to_thread(
+                    tos_bj.fetch_from_url, out_key, sg_public_url
+                )
+                item["output_video_bj_tos_uri"] = bj_tos_uri
+                item["output_video_bj_tos_public_url"] = bj_public_url
+                item["bj_fetch_error"] = None
+            except Exception as bj_exc:  # noqa: BLE001
+                logger.warning(
+                    "BJ fetch failed for %s/%d (SG URL still works): %s",
+                    job_id, index, str(bj_exc)[:300]
+                )
+                item["output_video_bj_tos_uri"] = None
+                item["output_video_bj_tos_public_url"] = None
+                item["bj_fetch_error"] = str(bj_exc)[:500]
+            await _persist_items(db, job_id, items)
     finally:
         # 6. 删除本地临时文件（无论成功失败都删）
         shutil.rmtree(tmp_dir, ignore_errors=True)
