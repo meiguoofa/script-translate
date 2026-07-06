@@ -113,7 +113,6 @@ class AliyunOSSClient:
             bucket,
             key,
             file_path,
-            store=oss2.ResumableDownloadStore(memory=True),
             multiget_threshold=10 * 1024 * 1024,  # <10MB 直接 PUT，否则分片
             part_size=5 * 1024 * 1024,  # 5MB/片
             num_threads=4,
