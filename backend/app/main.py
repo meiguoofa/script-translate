@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from sqlalchemy.engine import make_url
 from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
+from app.services.zombie_cleanup import cleanup_zombie_jobs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 from app.routers import (
@@ -59,7 +61,22 @@ def create_app() -> FastAPI:
     registry = ProviderRegistry(settings)
     _application_state = ApplicationState(settings=settings, db=db, registry=registry)
 
-    app = FastAPI(title=settings.app_name)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # 启动时清理上次服务重启遗留的 zombie job（status=running 但 updated_at > 10min）
+        await db.init_models()
+        try:
+            cleaned = await cleanup_zombie_jobs(db)
+            if cleaned:
+                logging.getLogger("app.main").info(
+                    "启动时清理了 %d 个 zombie job", cleaned
+                )
+        except Exception as exc:  # noqa: BLE001
+            # 清理失败不阻塞启动
+            logging.getLogger("app.main").warning("zombie cleanup 失败（不阻塞启动）: %s", exc)
+        yield
+
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
     app.state.db = db
     app.state.registry = registry
