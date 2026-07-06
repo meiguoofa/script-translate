@@ -54,6 +54,7 @@ class AliyunOSSClient:
             f"https://{self._settings.aliyun_oss_endpoint}",
             self._settings.aliyun_oss_bucket,
             connect_timeout=60,
+            read_timeout=300,  # 5 分钟，跨地域拉大文件（clean.mp4 ~200MB）需要
         )
 
     @property
@@ -100,16 +101,24 @@ class AliyunOSSClient:
         bucket.put_object(key, text.encode("utf-8"), headers={"Content-Type": content_type})
 
     def download_object_to_file(self, key: str, file_path: str) -> None:
-        """流式下载 OSS 对象到本地文件（用于下载 clean.mp4 做 ffmpeg 烧录）。"""
+        """流式下载 OSS 对象到本地文件（用于下载 clean.mp4 做 ffmpeg 烧录）。
+
+        用 oss2.resumable_download 做分片断点续传：
+        - 默认 5MB/片，每片独立失败可重试
+        - 已下载的片不重下，连接断了不用从头来
+        - 跨地域（上海 OSS → 新加坡服务器）拉 200MB 大文件必须用这个
+        """
 
         bucket = self._fresh_bucket()
-        stream = bucket.get_object(key)
-        try:
-            with open(file_path, "wb") as f:
-                for chunk in stream:
-                    f.write(chunk)
-        finally:
-            stream.close()
+        oss2.resumable_download(
+            bucket,
+            key,
+            file_path,
+            store=oss2.ResumableDownloadStore(memory=True),
+            multiget_threshold=10 * 1024 * 1024,  # <10MB 直接 PUT，否则分片
+            part_size=5 * 1024 * 1024,  # 5MB/片
+            num_threads=4,
+        )
 
     def presign_put(
         self, key: str, content_type: str | None = None, expires_in: int = 3600
