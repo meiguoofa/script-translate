@@ -316,3 +316,15 @@ export async function listSubtitleEraseJobs(params?: { limit?: number; offset?: 
   const response = await client.get<SubtitleEraseJobSummary[]>("/subtitle-erase", { params });
   return response.data;
 }
+
+// ===== 表单参数持久化（服务器端） =====
+
+export async function getSubtitleEraseSettings() {
+  const response = await client.get<Record<string, unknown>>("/subtitle-erase/settings");
+  return response.data;
+}
+
+export async function saveSubtitleEraseSettings(params: Record<string, unknown>) {
+  const response = await client.put<Record<string, unknown>>("/subtitle-erase/settings", params);
+  return response.data;
+}

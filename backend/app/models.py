@@ -213,7 +213,6 @@ class VideoSubtitleEraseJob(Base):
     """
 
     __tablename__ = "video_subtitle_erase_jobs"
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
     drama_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -260,6 +259,21 @@ class VideoSubtitleEraseJob(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AppSetting(Base):
+    """通用 KV 设置表（key-value）。单行存 JSON blob。
+
+    用于持久化前端表单参数等配置，避免依赖浏览器 localStorage。
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

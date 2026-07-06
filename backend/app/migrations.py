@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db import Base
 from app.models import (
+    AppSetting,
     CleanedScriptJob,
     PromptTemplate,
     VideoScriptJob,
@@ -24,6 +25,7 @@ CREATE_VIDEO_SUPER_RESOLUTION_JOBS_VERSION = "20260624_001_create_video_super_re
 CREATE_VIDEO_SUBTITLE_JOBS_VERSION = "20260627_001_create_video_subtitle_jobs"
 CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION = "20260704_001_create_video_subtitle_erase_jobs"
 ADD_SUBTITLE_ERASE_BURN_MODE_VERSION = "20260705_001_add_subtitle_erase_burn_mode"
+CREATE_APP_SETTINGS_VERSION = "20260706_001_create_app_settings"
 
 
 metadata = MetaData()
@@ -81,6 +83,12 @@ async def run_migrations(connection: AsyncConnection) -> None:
         await connection.run_sync(_add_subtitle_erase_burn_mode_columns)
         await connection.execute(
             schema_migrations.insert().values(version=ADD_SUBTITLE_ERASE_BURN_MODE_VERSION)
+        )
+
+    if CREATE_APP_SETTINGS_VERSION not in applied:
+        await connection.run_sync(_create_app_settings)
+        await connection.execute(
+            schema_migrations.insert().values(version=CREATE_APP_SETTINGS_VERSION)
         )
 
     await _seed_default_prompt(connection)
@@ -150,6 +158,13 @@ def _add_subtitle_erase_burn_mode_columns(sync_connection) -> None:
         sync_connection.execute(text(
             "ALTER TABLE video_subtitle_erase_jobs ADD COLUMN output_tos_prefix TEXT"
         ))
+
+
+def _create_app_settings(sync_connection) -> None:
+    inspector = inspect(sync_connection)
+    if AppSetting.__tablename__ in inspector.get_table_names():
+        return
+    AppSetting.__table__.create(sync_connection, checkfirst=True)
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

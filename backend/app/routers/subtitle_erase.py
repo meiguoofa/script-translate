@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_session, get_settings, require_passphrase
-from app.models import VideoSubtitleEraseJob
+from app.models import AppSetting, VideoSubtitleEraseJob
 from app.schemas import (
     SubtitleEraseJobCreateRequest,
     SubtitleEraseJobItemOut,
@@ -333,6 +333,54 @@ async def create_subtitle_erase_job(
     return _job_to_out(job)
 
 
+# ===== 表单参数持久化（服务器端，不依赖浏览器 localStorage） =====
+# 注意：/settings 必须在 /{job_id} 路由之前声明，否则 FastAPI 会把
+# "settings" 当成 job_id 匹配到 GET /{job_id}，返回 404 任务不存在。
+
+SETTINGS_KEY = "subtitle_erase_form_params"
+
+
+@router.get(
+    "/settings",
+    response_model=dict,
+    dependencies=[Depends(require_passphrase)],
+)
+async def get_subtitle_erase_settings(
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """读取上次保存的表单参数。无记录返回空 dict。"""
+
+    row = await session.get(AppSetting, SETTINGS_KEY)
+    if row is None:
+        return {}
+    try:
+        return json.loads(row.value)
+    except json.JSONDecodeError:
+        return {}
+
+
+@router.put(
+    "/settings",
+    response_model=dict,
+    dependencies=[Depends(require_passphrase)],
+)
+async def save_subtitle_erase_settings(
+    payload: dict,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """保存表单参数（覆盖式）。前端防抖调用，避免频繁请求。"""
+
+    value = json.dumps(payload, ensure_ascii=False)
+    row = await session.get(AppSetting, SETTINGS_KEY)
+    if row is None:
+        row = AppSetting(key=SETTINGS_KEY, value=value)
+        session.add(row)
+    else:
+        row.value = value
+    await session.commit()
+    return payload
+
+
 @router.get("/{job_id}", response_model=SubtitleEraseJobOut)
 async def get_subtitle_erase_job(
     job_id: str, session: AsyncSession = Depends(get_session)
@@ -400,3 +448,4 @@ async def list_subtitle_erase_jobs(
         .offset(offset)
     )
     return [_job_to_summary(j) for j in rows]
+

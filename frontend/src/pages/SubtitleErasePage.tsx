@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Loader2 } from "lucide-react";
 import {
   createSubtitleEraseJob,
   getModels,
+  getSubtitleEraseSettings,
   requestSubtitleEraseUploadUrls,
+  saveSubtitleEraseSettings,
 } from "@/api/client";
 import type { ModelOption, SubtitleEraseUploadEntry } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -54,8 +56,6 @@ const CAPTION_LANGS = [
   { value: "ko", label: "韩文" },
 ];
 
-const FORM_PARAMS_STORAGE_KEY = "subtitle-erase-form-params";
-
 type FormParams = {
   detextMode: "basic" | "advanced";
   translateMode: "aliyun" | "llm";
@@ -102,17 +102,6 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   burnTextWidth: 0.9,
 };
 
-function loadStoredFormParams(): FormParams {
-  try {
-    const raw = localStorage.getItem(FORM_PARAMS_STORAGE_KEY);
-    if (!raw) return DEFAULT_FORM_PARAMS;
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_FORM_PARAMS, ...parsed };
-  } catch {
-    return DEFAULT_FORM_PARAMS;
-  }
-}
-
 export function SubtitleErasePage() {
   const navigate = useNavigate();
   const [verified, setVerified] = useState<boolean>(Boolean(getPassphrase()));
@@ -120,39 +109,80 @@ export function SubtitleErasePage() {
   const [dramas, setDramas] = useState<Drama[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
 
-  const [stored] = useState(loadStoredFormParams);
-  const [detextMode, setDetextMode] = useState<"basic" | "advanced">(stored.detextMode);
-  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">(stored.translateMode);
-  const [burnMode, setBurnMode] = useState<"local" | "aliyun">(stored.burnMode);
-  const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">(stored.placementMode);
-  const [sourceLang, setSourceLang] = useState<string>(stored.sourceLang);
-  const [targetLang, setTargetLang] = useState<string>(stored.targetLang);
-  const [modelProvider, setModelProvider] = useState<string>(stored.modelProvider);
-  const [modelName, setModelName] = useState<string>(stored.modelName);
-  const [qps, setQps] = useState<number>(stored.qps);
+  // 表单参数：先用默认值初始化，verify 后从服务器加载覆盖
+  const [detextMode, setDetextMode] = useState<"basic" | "advanced">(DEFAULT_FORM_PARAMS.detextMode);
+  const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">(DEFAULT_FORM_PARAMS.translateMode);
+  const [burnMode, setBurnMode] = useState<"local" | "aliyun">(DEFAULT_FORM_PARAMS.burnMode);
+  const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">(DEFAULT_FORM_PARAMS.placementMode);
+  const [sourceLang, setSourceLang] = useState<string>(DEFAULT_FORM_PARAMS.sourceLang);
+  const [targetLang, setTargetLang] = useState<string>(DEFAULT_FORM_PARAMS.targetLang);
+  const [modelProvider, setModelProvider] = useState<string>(DEFAULT_FORM_PARAMS.modelProvider);
+  const [modelName, setModelName] = useState<string>(DEFAULT_FORM_PARAMS.modelName);
+  const [qps, setQps] = useState<number>(DEFAULT_FORM_PARAMS.qps);
 
-  const [captionFps, setCaptionFps] = useState<number>(stored.captionFps);
-  const [captionLang, setCaptionLang] = useState<string>(stored.captionLang);
-  const [captionTrack, setCaptionTrack] = useState<string>(stored.captionTrack);
-  const [captionRoi, setCaptionRoi] = useState<string>(stored.captionRoi);
-  const [captionSep, setCaptionSep] = useState<boolean>(stored.captionSep);
+  const [captionFps, setCaptionFps] = useState<number>(DEFAULT_FORM_PARAMS.captionFps);
+  const [captionLang, setCaptionLang] = useState<string>(DEFAULT_FORM_PARAMS.captionLang);
+  const [captionTrack, setCaptionTrack] = useState<string>(DEFAULT_FORM_PARAMS.captionTrack);
+  const [captionRoi, setCaptionRoi] = useState<string>(DEFAULT_FORM_PARAMS.captionRoi);
+  const [captionSep, setCaptionSep] = useState<boolean>(DEFAULT_FORM_PARAMS.captionSep);
 
-  const [detextLimitRegion, setDetextLimitRegion] = useState<string>(stored.detextLimitRegion);
-  const [burnFontSize, setBurnFontSize] = useState<number>(stored.burnFontSize);
-  const [burnFontColor, setBurnFontColor] = useState<string>(stored.burnFontColor);
-  const [burnX, setBurnX] = useState<number>(stored.burnX);
-  const [burnY, setBurnY] = useState<number>(stored.burnY);
-  const [burnTextWidth, setBurnTextWidth] = useState<number>(stored.burnTextWidth);
+  const [detextLimitRegion, setDetextLimitRegion] = useState<string>(DEFAULT_FORM_PARAMS.detextLimitRegion);
+  const [burnFontSize, setBurnFontSize] = useState<number>(DEFAULT_FORM_PARAMS.burnFontSize);
+  const [burnFontColor, setBurnFontColor] = useState<string>(DEFAULT_FORM_PARAMS.burnFontColor);
+  const [burnX, setBurnX] = useState<number>(DEFAULT_FORM_PARAMS.burnX);
+  const [burnY, setBurnY] = useState<number>(DEFAULT_FORM_PARAMS.burnY);
+  const [burnTextWidth, setBurnTextWidth] = useState<number>(DEFAULT_FORM_PARAMS.burnTextWidth);
 
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  // 加载完成标志：避免首次加载触发的 setXxx 又触发保存
+  const settingsLoadedRef = useRef(false);
+  // 防抖保存的 timer
+  const saveTimerRef = useRef<number | null>(null);
+
+  // 验证后从服务器加载已保存的表单参数
+  useEffect(() => {
+    if (!verified) return;
+    getSubtitleEraseSettings()
+      .then((data) => {
+        if (!data || Object.keys(data).length === 0) return;
+        // 用 server 数据覆盖 state（只覆盖存在的字段）
+        if (data.detextMode) setDetextMode(data.detextMode as "basic" | "advanced");
+        if (data.translateMode) setTranslateMode(data.translateMode as "aliyun" | "llm");
+        if (data.burnMode) setBurnMode(data.burnMode as "local" | "aliyun");
+        if (data.placementMode) setPlacementMode(data.placementMode as "safe_bottom" | "simple_bottom");
+        if (typeof data.sourceLang === "string") setSourceLang(data.sourceLang);
+        if (typeof data.targetLang === "string") setTargetLang(data.targetLang);
+        if (typeof data.modelProvider === "string") setModelProvider(data.modelProvider);
+        if (typeof data.modelName === "string") setModelName(data.modelName);
+        if (typeof data.qps === "number") setQps(data.qps);
+        if (typeof data.captionFps === "number") setCaptionFps(data.captionFps);
+        if (typeof data.captionLang === "string") setCaptionLang(data.captionLang);
+        if (typeof data.captionTrack === "string") setCaptionTrack(data.captionTrack);
+        if (typeof data.captionRoi === "string") setCaptionRoi(data.captionRoi);
+        if (typeof data.captionSep === "boolean") setCaptionSep(data.captionSep);
+        if (typeof data.detextLimitRegion === "string") setDetextLimitRegion(data.detextLimitRegion);
+        if (typeof data.burnFontSize === "number") setBurnFontSize(data.burnFontSize);
+        if (typeof data.burnFontColor === "string") setBurnFontColor(data.burnFontColor);
+        if (typeof data.burnX === "number") setBurnX(data.burnX);
+        if (typeof data.burnY === "number") setBurnY(data.burnY);
+        if (typeof data.burnTextWidth === "number") setBurnTextWidth(data.burnTextWidth);
+      })
+      .catch(() => {
+        // 加载失败静默处理，用默认值即可
+      })
+      .finally(() => {
+        settingsLoadedRef.current = true;
+      });
+  }, [verified]);
 
   useEffect(() => {
     if (!verified) return;
     getModels()
       .then((list) => {
         setModels(list);
-        // 仅当上次没有保存过 provider/model 时，才用默认值
+        // 仅当没有已保存的 provider/model 时，才用默认值
         if (!modelProvider && !modelName) {
           const def = list.find((m) => m.default) ?? list[0];
           if (def) {
@@ -164,20 +194,29 @@ export function SubtitleErasePage() {
       .catch(() => toast.error("模型列表加载失败"));
   }, [verified]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 表单参数变化时持久化到 localStorage（标题和上传文件不保存）
+  // 表单参数变化时防抖保存到服务器（标题和上传文件不保存）
   useEffect(() => {
-    const params: FormParams = {
-      detextMode, translateMode, burnMode, placementMode,
-      sourceLang, targetLang, modelProvider, modelName, qps,
-      captionFps, captionLang, captionTrack, captionRoi, captionSep,
-      detextLimitRegion, burnFontSize, burnFontColor,
-      burnX, burnY, burnTextWidth,
-    };
-    try {
-      localStorage.setItem(FORM_PARAMS_STORAGE_KEY, JSON.stringify(params));
-    } catch {
-      // 忽略 localStorage 写入失败（如隐私模式）
+    if (!settingsLoadedRef.current) return;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
     }
+    saveTimerRef.current = window.setTimeout(() => {
+      const params: FormParams = {
+        detextMode, translateMode, burnMode, placementMode,
+        sourceLang, targetLang, modelProvider, modelName, qps,
+        captionFps, captionLang, captionTrack, captionRoi, captionSep,
+        detextLimitRegion, burnFontSize, burnFontColor,
+        burnX, burnY, burnTextWidth,
+      };
+      saveSubtitleEraseSettings(params).catch(() => {
+        // 保存失败静默处理
+      });
+    }, 800);
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
   }, [
     detextMode, translateMode, burnMode, placementMode,
     sourceLang, targetLang, modelProvider, modelName, qps,
