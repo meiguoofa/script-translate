@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     oss_subtitle_erase_input_prefix: str = "subtitle-erase-input"
     oss_subtitle_erase_output_prefix: str = "subtitle-erase-output"
 
+    # 阿里云 MPS（媒体处理，字幕硬压烧录）
+    aliyun_mps_endpoint: str = "mts.cn-shanghai.aliyuncs.com"
+    aliyun_mps_pipeline_id: str = ""
+    aliyun_mps_template_id: str = "d0fa510039bc4081846bc985e4fe0afe"  # 自建 H264 模板，保留原视频分辨率
+
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     model_config = SettingsConfigDict(

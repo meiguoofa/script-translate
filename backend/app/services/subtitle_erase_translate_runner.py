@@ -17,6 +17,7 @@ from app.models import VideoSubtitleEraseJob
 from app.services.aliyun_oss_client import AliyunOSSClient
 from app.services.ffmpeg_burn import burn_subtitles, probe_video_size
 from app.services.ims_client import IMSClient
+from app.services.mps_client import MPSClient
 from app.services.rate_limiter import RateLimiter
 from app.services.srt_cleaner import clean_srt
 from app.services.srt_utils import parse_srt, srt_to_ass
@@ -57,6 +58,8 @@ RETRY_FIELDS = (
     "output_video_bj_tos_uri",
     "output_video_bj_tos_public_url",
     "bj_fetch_error",
+    "mps_job_id",
+    "burn_ass_oss_uri",
     "error",
 )
 
@@ -284,6 +287,13 @@ def _parse_tos_uri(tos_uri: str) -> tuple[str, str]:
     return bucket, key
 
 
+async def _probe_oss_video_size(oss: AliyunOSSClient, oss_uri: str) -> tuple[int, int]:
+    """用 ffprobe 直接探 OSS 公网 HTTPS URL 的视频宽高（不下载到本地）。"""
+    _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
+    url = oss.public_url(key)
+    return await asyncio.to_thread(probe_video_size, url)
+
+
 async def _run_episode(
     db: Database,
     job_id: str,
@@ -484,7 +494,65 @@ async def _run_episode(
             item["error"] = f"本地烧录失败: {exc}"
             await _persist_items(db, job_id, items)
             return
-    else:
+    elif snapshot["burn_mode"] == "mps":
+        # MPS 烧录：clean.mp4 + ASS → SubmitJobs → output.mp4 直写 OSS
+        try:
+            video_w, video_h = await _probe_oss_video_size(oss, clean_mp4_oss)
+            entries = parse_srt(srt_for_burn_text)
+            ass_text = srt_to_ass(
+                entries,
+                video_w=video_w,
+                video_h=video_h,
+                placement_mode=snapshot["placement_mode"],
+                font_size=snapshot["burn_font_size"],
+                font_color=snapshot["burn_font_color"],
+                font_color_opacity=snapshot["burn_font_color_opacity"],
+                pos_x_ratio=snapshot["burn_x"],
+                pos_y_ratio=snapshot["burn_y"],
+                text_width_ratio=snapshot["burn_text_width"],
+            )
+            burn_ass_oss = (
+                f"oss://{oss.bucket_name}/"
+                f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'burn.ass')}"
+            )
+            _, ass_key = AliyunOSSClient.parse_oss_uri(burn_ass_oss)
+            await asyncio.to_thread(oss.put_object_text, ass_key, ass_text)
+            item["burn_ass_oss_uri"] = burn_ass_oss
+            await _persist_items(db, job_id, items)
+
+            mps = MPSClient(settings)
+            mps_submit = await mps.submit_subtitle_burn(
+                input_oss_uri=clean_mp4_oss,
+                subtitle_oss_uri=burn_ass_oss,
+                output_oss_uri=output_mp4_oss,
+                title=f"{name_prefix}-mps-burn",
+            )
+            item["mps_job_id"] = mps_submit.job_id
+            await _persist_items(db, job_id, items)
+
+            final = await mps.wait_for_job(
+                mps_submit.job_id,
+                poll_interval_seconds=settings.ims_poll_interval_seconds,
+                timeout_seconds=settings.ims_poll_timeout_seconds,
+            )
+            item["translation_status"] = None  # MPS 无 IMS 翻译任务
+            item["output_video_oss_uri"] = output_mp4_oss
+            item["output_public_url"] = oss.public_url(
+                AliyunOSSClient.parse_oss_uri(output_mp4_oss)[1]
+            )
+            # TOS 字段在 mps 模式下永远 None（输出直落 OSS）
+            item["output_video_tos_uri"] = None
+            item["output_video_tos_public_url"] = None
+            item["output_video_bj_tos_uri"] = None
+            item["output_video_bj_tos_public_url"] = None
+            item["bj_fetch_error"] = None
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("mps burn %s/%d failed", job_id, index)
+            item["status"] = "failed"
+            item["error"] = f"MPS 烧录失败: {exc}"
+            await _persist_items(db, job_id, items)
+            return
+    elif snapshot["burn_mode"] == "aliyun":
         # aliyun 烧录（IMS SubmitVideoTranslationJob）
         try:
             video_media_id = await ims.register_media(
@@ -529,6 +597,11 @@ async def _run_episode(
             item["error"] = f"烧录失败: {exc}"
             await _persist_items(db, job_id, items)
             return
+    else:
+        item["status"] = "failed"
+        item["error"] = f"未知 burn_mode: {snapshot['burn_mode']}"
+        await _persist_items(db, job_id, items)
+        return
 
     item["stage"] = "done"
     item["status"] = "succeeded"

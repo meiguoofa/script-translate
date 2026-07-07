@@ -459,7 +459,7 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     title: str
     detext_mode: str = Field(default="advanced", pattern="^(basic|advanced)$")
     translate_mode: str = Field(default="llm", pattern="^(aliyun|llm)$")
-    burn_mode: str = Field(default="local", pattern="^(local|aliyun)$")
+    burn_mode: str = Field(default="local", pattern="^(local|aliyun|mps)$")
     placement_mode: str = Field(default="safe_bottom", pattern="^(safe_bottom|simple_bottom)$")
     source_lang: str | None = None
     target_lang: str
@@ -514,6 +514,9 @@ class SubtitleEraseJobItemOut(BaseModel):
     output_video_bj_tos_uri: str | None
     output_video_bj_tos_public_url: str | None
     bj_fetch_error: str | None
+
+    mps_job_id: str | None
+    burn_ass_oss_uri: str | None
 
     stage: str
     status: str

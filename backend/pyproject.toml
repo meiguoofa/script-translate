@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
   "aiosqlite>=0.20.0",
   "alibabacloud-ice20201109>=6.19.0",
+  "alibabacloud-mts20140618>=6.0.3",
   "alibabacloud-tea-openapi>=0.3.0",
   "alibabacloud-videoenhan20200320>=3.0.0",
   "alibabacloud-videorecog20200320>=3.0.0",
