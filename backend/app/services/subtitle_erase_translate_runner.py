@@ -99,13 +99,26 @@ async def _load_snapshot(db: Database, job_id: str) -> dict | None:
         }
 
 
+_persist_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_persist_lock(job_id: str) -> asyncio.Lock:
+    lock = _persist_locks.get(job_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _persist_locks[job_id] = lock
+    return lock
+
+
 async def _persist_items(db: Database, job_id: str, items: list[dict]) -> None:
-    async with await db.session() as session:
-        job = await session.get(VideoSubtitleEraseJob, job_id)
-        if job is None:
-            return
-        job.items_json = json.dumps(items, ensure_ascii=False)
-        await session.commit()
+    # 多 episode 并发时，每个 episode 都会调 _persist_items，需要加锁防止后写覆盖前写
+    async with _get_persist_lock(job_id):
+        async with await db.session() as session:
+            job = await session.get(VideoSubtitleEraseJob, job_id)
+            if job is None:
+                return
+            job.items_json = json.dumps(items, ensure_ascii=False)
+            await session.commit()
 
 
 async def _set_job_fields(
@@ -654,9 +667,11 @@ async def run_subtitle_erase_translate_job(
     )
 
     async def _run_drama(drama_index: int, episode_indices: list[int]) -> None:
-        # 同一剧内：顺序处理；多剧之间：并行（受 RateLimiter 限流）
-        for ep_idx in episode_indices:
-            await _run_episode(db, job_id, ims, oss, registry, settings, snapshot, items, ep_idx)
+        # 同一剧内 episode 并发处理；多剧之间也并行（受 RateLimiter 限流）
+        await asyncio.gather(
+            *(_run_episode(db, job_id, ims, oss, registry, settings, snapshot, items, ep_idx)
+              for ep_idx in episode_indices)
+        )
 
     await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
 

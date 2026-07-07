@@ -142,12 +142,27 @@ class ProviderRegistry:
                     target_langs=["zh", "en", "th", "ar"],
                     default=self.settings.default_provider == "wenwen" and index == 0,
                 )
+        if self.settings.mobinova_api_key:
+            self._providers["mobinova"] = OpenAICompatibleProvider(
+                "mobinova",
+                self.settings.mobinova_api_key,
+                self.settings.mobinova_base_url,
+            )
+            self._add_model(
+                provider="mobinova",
+                name="gpt-5.5",
+                label="Mobinova GPT-5.5",
+                target_langs=["zh", "en", "th", "ar"],
+                default=self.settings.default_provider == "mobinova",
+            )
 
     def _validate_default_provider(self) -> None:
         if self.settings.default_provider == "doubao" and not self.settings.doubao_api_key:
             raise ValueError("DOUBAO_API_KEY is required when DEFAULT_PROVIDER=doubao.")
         if self.settings.default_provider == "doubao" and not self.settings.doubao_models:
             raise ValueError("DOUBAO_MODELS is required when DEFAULT_PROVIDER=doubao.")
+        if self.settings.default_provider == "mobinova" and not self.settings.mobinova_api_key:
+            raise ValueError("MOBINOVA_API_KEY is required when DEFAULT_PROVIDER=mobinova.")
         if not self._providers:
             raise ValueError("No LLM providers are configured. Set at least one API key.")
         if self.settings.default_provider not in self._providers:

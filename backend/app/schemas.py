@@ -459,13 +459,13 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     title: str
     detext_mode: str = Field(default="advanced", pattern="^(basic|advanced)$")
     translate_mode: str = Field(default="llm", pattern="^(aliyun|llm)$")
-    burn_mode: str = Field(default="local", pattern="^(local|aliyun|mps)$")
+    burn_mode: str = Field(default="mps", pattern="^(local|aliyun|mps)$")
     placement_mode: str = Field(default="safe_bottom", pattern="^(safe_bottom|simple_bottom)$")
     source_lang: str | None = None
     target_lang: str
     model_provider: str | None = None
     model_name: str | None = None
-    qps: int = Field(default=10, ge=1, le=50)
+    qps: int = Field(default=30, ge=1, le=100)
 
     caption_fps: int = Field(default=5, ge=2, le=10)
     caption_lang: str = "ch_ml"

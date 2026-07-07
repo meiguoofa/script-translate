@@ -221,7 +221,7 @@ class VideoSubtitleEraseJob(Base):
     # 流程模式
     detext_mode: Mapped[str] = mapped_column(String(16), default="advanced")  # basic / advanced
     translate_mode: Mapped[str] = mapped_column(String(16), default="llm")  # aliyun / llm
-    burn_mode: Mapped[str] = mapped_column(String(16), default="local")  # local / aliyun / mps
+    burn_mode: Mapped[str] = mapped_column(String(16), default="mps")  # local / aliyun / mps
     placement_mode: Mapped[str] = mapped_column(String(32), default="safe_bottom")  # safe_bottom / simple_bottom
     source_lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
     target_lang: Mapped[str] = mapped_column(String(16))
@@ -229,7 +229,7 @@ class VideoSubtitleEraseJob(Base):
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # QPS（全工程共享限流）
-    qps: Mapped[int] = mapped_column(Integer, default=10)
+    qps: Mapped[int] = mapped_column(Integer, default=30)
 
     # 字幕提取参数（前端可调）
     caption_fps: Mapped[int] = mapped_column(Integer, default=5)

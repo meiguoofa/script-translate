@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     database_url: str = "sqlite+aiosqlite:///./data/app.db"
     storage_root: str = "./storage"
-    default_provider: str = "doubao"
+    default_provider: str = "mobinova"
     prompt_version: str = "v1"
     batch_size: int = 20
     upload_max_size_mb: int = 20
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     tongyi_api_key: str | None = None
     zhipu_api_key: str | None = None
     wenwen_api_key: str | None = Field(default=None, alias="WENWEN-API-KEY")
+    mobinova_api_key: str | None = None
+    mobinova_base_url: str = "https://mobinova.cc/v1"
 
     openai_base_url: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -76,7 +78,7 @@ class Settings(BaseSettings):
     aliyun_ice_endpoint: str = "ice.cn-shanghai.aliyuncs.com"
     ims_poll_interval_seconds: int = 10
     ims_poll_timeout_seconds: int = 10800
-    ims_default_qps: int = 10
+    ims_default_qps: int = 30
     oss_subtitle_erase_input_prefix: str = "subtitle-erase-input"
     oss_subtitle_erase_output_prefix: str = "subtitle-erase-output"
 

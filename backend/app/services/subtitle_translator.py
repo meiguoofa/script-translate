@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 
@@ -21,7 +22,7 @@ async def translate_srt(
 ) -> str:
     """翻译 SRT 文本，保留时间轴。返回新的 SRT 文本。
 
-    每条 entry 的 text 作为一行翻译；LLM 输出中的换行会被保留为 SRT 里的换行。
+    所有 batch 并发提交（asyncio.gather），由 provider 侧的 httpx 连接池 / 远端 QPS 自然限流。
     """
     entries = parse_srt(srt_text)
     if not entries:
@@ -30,9 +31,8 @@ async def translate_srt(
     provider = registry.get_provider(model_provider)
 
     batch_count = max(1, math.ceil(len(entries) / batch_size))
-    translation_by_index: dict[int, str] = {}
 
-    for batch_index in range(batch_count):
+    async def _translate_one(batch_index: int) -> list[tuple[int, str]]:
         start = batch_index * batch_size
         end = start + batch_size
         batch = entries[start:end]
@@ -48,11 +48,18 @@ async def translate_srt(
             context="",
             lines=batch_lines,
         )
-        for input_line, entry in zip(batch_lines, batch):
-            translated = result.translations.get(input_line.label)
-            if translated is None:
-                translated = entry.text
-            translation_by_index[entry.index] = translated
+        return [
+            (e.index, result.translations.get(bl.label, e.text))
+            for bl, e in zip(batch_lines, batch)
+        ]
+
+    batch_results = await asyncio.gather(
+        *(_translate_one(i) for i in range(batch_count))
+    )
+    translation_by_index: dict[int, str] = {}
+    for mapped in batch_results:
+        for idx, text in mapped:
+            translation_by_index[idx] = text
 
     new_entries = [
         SrtEntry(
