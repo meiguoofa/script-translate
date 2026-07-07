@@ -376,7 +376,7 @@ export type SubtitleEraseJobOut = {
   video_count: number;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
-  burn_mode: "local" | "aliyun";
+  burn_mode: "local" | "aliyun" | "mps";
   placement_mode: "safe_bottom" | "simple_bottom";
   source_lang: string | null;
   target_lang: string;
@@ -417,7 +417,7 @@ export type SubtitleEraseJobSummary = {
   video_count: number;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
-  burn_mode: "local" | "aliyun";
+  burn_mode: "local" | "aliyun" | "mps";
   target_lang: string;
   status: "pending" | "running" | "completed" | "failed";
   succeeded_count: number;
@@ -441,7 +441,7 @@ export type SubtitleEraseJobCreateInput = {
   title: string;
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
-  burn_mode: "local" | "aliyun";
+  burn_mode: "local" | "aliyun" | "mps";
   placement_mode: "safe_bottom" | "simple_bottom";
   source_lang?: string | null;
   target_lang: string;

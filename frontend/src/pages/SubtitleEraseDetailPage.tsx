@@ -179,7 +179,7 @@ export function SubtitleEraseDetailPage() {
             <CardDescription>
               {job.drama_count} 部剧 · {job.video_count} 集 · {job.detext_mode === "advanced" ? "高级版擦除" : "基础版擦除"} ·{" "}
               {job.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {job.target_lang} ·{" "}
-              {job.burn_mode === "local" ? "本机 ffmpeg 烧录" : "阿里云 IMS 烧录"} ·
+              {job.burn_mode === "local" ? "本机 ffmpeg 烧录" : job.burn_mode === "mps" ? "MPS 烧录" : "阿里云 IMS 烧录"} ·
               成功 {job.succeeded_count} · 失败 {job.failed_count}
             </CardDescription>
           </div>

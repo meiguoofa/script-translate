@@ -60,7 +60,7 @@ const CAPTION_LANGS = [
 type FormParams = {
   detextMode: "basic" | "advanced";
   translateMode: "aliyun" | "llm";
-  burnMode: "local" | "aliyun";
+  burnMode: "local" | "aliyun" | "mps";
   placementMode: "safe_bottom" | "simple_bottom";
   sourceLang: string;
   targetLang: string;
@@ -83,7 +83,7 @@ type FormParams = {
 const DEFAULT_FORM_PARAMS: FormParams = {
   detextMode: "advanced",
   translateMode: "llm",
-  burnMode: "local",
+  burnMode: "mps",
   placementMode: "safe_bottom",
   sourceLang: "auto",
   targetLang: "zh",
@@ -113,7 +113,7 @@ export function SubtitleErasePage() {
   // 表单参数：先用默认值初始化，verify 后从服务器加载覆盖
   const [detextMode, setDetextMode] = useState<"basic" | "advanced">(DEFAULT_FORM_PARAMS.detextMode);
   const [translateMode, setTranslateMode] = useState<"aliyun" | "llm">(DEFAULT_FORM_PARAMS.translateMode);
-  const [burnMode, setBurnMode] = useState<"local" | "aliyun">(DEFAULT_FORM_PARAMS.burnMode);
+  const [burnMode, setBurnMode] = useState<"local" | "aliyun" | "mps">(DEFAULT_FORM_PARAMS.burnMode);
   const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">(DEFAULT_FORM_PARAMS.placementMode);
   const [sourceLang, setSourceLang] = useState<string>(DEFAULT_FORM_PARAMS.sourceLang);
   const [targetLang, setTargetLang] = useState<string>(DEFAULT_FORM_PARAMS.targetLang);
@@ -151,7 +151,7 @@ export function SubtitleErasePage() {
         // 用 server 数据覆盖 state（只覆盖存在的字段）
         if (data.detextMode) setDetextMode(data.detextMode as "basic" | "advanced");
         if (data.translateMode) setTranslateMode(data.translateMode as "aliyun" | "llm");
-        if (data.burnMode) setBurnMode(data.burnMode as "local" | "aliyun");
+        if (data.burnMode) setBurnMode(data.burnMode as "local" | "aliyun" | "mps");
         if (data.placementMode) setPlacementMode(data.placementMode as "safe_bottom" | "simple_bottom");
         if (typeof data.sourceLang === "string") setSourceLang(data.sourceLang);
         if (typeof data.targetLang === "string") setTargetLang(data.targetLang);
@@ -417,10 +417,10 @@ export function SubtitleErasePage() {
                 <Select
                   value={burnMode}
                   onValueChange={(v) => {
-                    const mode = v as "local" | "aliyun";
+                    const mode = v as "local" | "aliyun" | "mps";
                     setBurnMode(mode);
-                    // 本机烧录必须搭配 LLM 翻译（IMS 翻译不单独提供 SRT 译文）
-                    if (mode === "local") {
+                    if (mode === "local" || mode === "mps") {
+                      // 本机/MPS 烧录必须搭配 LLM 翻译
                       setTranslateMode("llm");
                     } else {
                       // 阿里云烧录：源语言不能是 auto
@@ -432,12 +432,17 @@ export function SubtitleErasePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="local">本机 ffmpeg 烧录（默认，输出 TOS 新加坡）</SelectItem>
+                    <SelectItem value="mps">阿里云 MPS 烧录（默认，推荐）</SelectItem>
+                    <SelectItem value="local">本机 ffmpeg 烧录（输出 TOS 新加坡）</SelectItem>
                     <SelectItem value="aliyun">阿里云 IMS 烧录（需 IMS 视频翻译套餐）</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  本机烧录不依赖 IMS 订阅；输出上传到火山引擎 TOS 新加坡桶，服务器零带宽
+                  {burnMode === "mps"
+                    ? "MPS 烧录不依赖 IMS 订阅，使用自定义模板保留原视频参数，输出落 OSS"
+                    : burnMode === "local"
+                      ? "本机 ffmpeg 烧录；输出上传到火山引擎 TOS 新加坡桶，服务器零带宽"
+                      : "阿里云 IMS 一体翻译+烧录，需 IMS 视频翻译套餐"}
                 </p>
               </div>
 
@@ -459,7 +464,7 @@ export function SubtitleErasePage() {
                 <Select
                   value={sourceLang}
                   onValueChange={setSourceLang}
-                  disabled={translateMode === "llm" && burnMode === "local"}
+                  disabled={translateMode === "llm" && (burnMode === "local" || burnMode === "mps")}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -467,7 +472,7 @@ export function SubtitleErasePage() {
                   <SelectContent>
                     {SOURCE_LANGS.filter(
                       (l) =>
-                        (translateMode === "llm" && burnMode === "local") ||
+                        (translateMode === "llm" && (burnMode === "local" || burnMode === "mps")) ||
                         l.value !== "auto"
                     ).map((l) => (
                       <SelectItem key={l.value} value={l.value}>
@@ -477,10 +482,10 @@ export function SubtitleErasePage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {(translateMode === "llm" && burnMode === "local")
-                    ? "LLM 翻译 + 本机烧录：源语言由模型自动识别"
+                  {(translateMode === "llm" && (burnMode === "local" || burnMode === "mps"))
+                    ? "LLM 翻译模式：源语言由模型自动识别"
                     : translateMode === "aliyun" || burnMode === "aliyun"
-                      ? "阿里云翻译/烧录必须明确源语言；如需自动识别，请切换为 LLM + 本机烧录"
+                      ? "阿里云翻译/烧录必须明确源语言；如需自动识别，请切换为 LLM + MPS 烧录"
                       : ""}
                 </p>
               </div>
@@ -705,7 +710,7 @@ export function SubtitleErasePage() {
             <SummaryRow label="总集数" value={String(totalFiles)} />
             <SummaryRow label="擦除模式" value={detextMode === "advanced" ? "高级版" : "基础版"} />
             <SummaryRow label="翻译模式" value={translateMode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} />
-            <SummaryRow label="烧录模式" value={burnMode === "local" ? "本机 ffmpeg" : "阿里云 IMS"} />
+            <SummaryRow label="烧录模式" value={burnMode === "local" ? "本机 ffmpeg" : burnMode === "mps" ? "阿里云 MPS" : "阿里云 IMS"} />
             <SummaryRow label="字幕放置" value={placementMode === "safe_bottom" ? "safe_bottom" : "simple_bottom"} />
             <SummaryRow label="目标语言" value={TARGET_LANGS.find((l) => l.value === targetLang)?.label || targetLang} />
             <SummaryRow label="QPS" value={String(qps)} />
