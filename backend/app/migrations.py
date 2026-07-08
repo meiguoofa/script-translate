@@ -26,6 +26,7 @@ CREATE_VIDEO_SUBTITLE_JOBS_VERSION = "20260627_001_create_video_subtitle_jobs"
 CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION = "20260704_001_create_video_subtitle_erase_jobs"
 ADD_SUBTITLE_ERASE_BURN_MODE_VERSION = "20260705_001_add_subtitle_erase_burn_mode"
 CREATE_APP_SETTINGS_VERSION = "20260706_001_create_app_settings"
+MIGRATE_BURN_FONT_SIZE_PCT_VERSION = "20260709_001_migrate_burn_font_size_pct"
 
 
 metadata = MetaData()
@@ -89,6 +90,17 @@ async def run_migrations(connection: AsyncConnection) -> None:
         await connection.run_sync(_create_app_settings)
         await connection.execute(
             schema_migrations.insert().values(version=CREATE_APP_SETTINGS_VERSION)
+        )
+
+    if MIGRATE_BURN_FONT_SIZE_PCT_VERSION not in applied:
+        await connection.execute(
+            text(
+                "UPDATE video_subtitle_erase_jobs SET burn_font_size = 5 "
+                "WHERE burn_font_size IS NOT NULL AND burn_font_size > 30"
+            )
+        )
+        await connection.execute(
+            schema_migrations.insert().values(version=MIGRATE_BURN_FONT_SIZE_PCT_VERSION)
         )
 
     await _seed_default_prompt(connection)

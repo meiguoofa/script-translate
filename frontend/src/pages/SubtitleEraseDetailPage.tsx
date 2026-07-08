@@ -96,7 +96,7 @@ export function SubtitleEraseDetailPage() {
   const [rCaptionRoiPct, setRCaptionRoiPct] = useState(35);
   const [rCaptionSep, setRCaptionSep] = useState(false);
   const [rDetextRegionPct, setRDetextRegionPct] = useState(35);
-  const [rBurnFontSize, setRBurnFontSize] = useState(72);
+  const [rBurnFontSize, setRBurnFontSize] = useState(5);
   const [rBurnFontColor, setRBurnFontColor] = useState("#FFFFFF");
   const [rBurnX, setRBurnX] = useState(0.5);
   const [rBurnY, setRBurnY] = useState(0.82);
@@ -520,9 +520,9 @@ export function SubtitleEraseDetailPage() {
             <p className="text-xs font-semibold text-muted-foreground">烧录字幕参数</p>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="flex flex-col gap-1.5">
-                <Label>字号</Label>
-                <Input type="number" min={8} max={200} value={rBurnFontSize}
-                  onChange={(e) => setRBurnFontSize(Number(e.target.value) || 72)} />
+                <Label>字号（占视频高度 %）</Label>
+                <Input type="number" min={1} max={30} step={1} value={rBurnFontSize}
+                  onChange={(e) => setRBurnFontSize(Math.min(30, Math.max(1, Number(e.target.value) || 5)))} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>颜色</Label>

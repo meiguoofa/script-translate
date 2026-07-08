@@ -475,7 +475,7 @@ class SubtitleEraseJobCreateRequest(BaseModel):
 
     detext_limit_region: str | None = None
 
-    burn_font_size: int = Field(default=72, ge=8, le=200)
+    burn_font_size: int = Field(default=5, ge=1, le=30)  # 占视频高度百分比
     burn_font_color: str = "#FFFFFF"
     burn_font_color_opacity: float = Field(default=1.0, ge=0.0, le=1.0)
     burn_x: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -504,7 +504,7 @@ class SubtitleEraseRerunRequest(BaseModel):
     caption_roi: str | None = None
     caption_sep: bool
     detext_limit_region: str | None = None
-    burn_font_size: int = Field(ge=8, le=200)
+    burn_font_size: int = Field(ge=1, le=30)  # 占视频高度百分比
     burn_font_color: str
     burn_font_color_opacity: float = Field(ge=0.0, le=1.0)
     burn_x: float = Field(ge=0.0, le=1.0)

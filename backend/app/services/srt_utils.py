@@ -102,6 +102,7 @@ def srt_to_ass(
     video_h: int,
     placement_mode: str = "safe_bottom",
     font_size: int | None = None,
+    font_size_pct: float | None = None,
     font_color: str = "#FFFFFF",
     font_color_opacity: float = 1.0,
     pos_x_ratio: float | None = None,
@@ -114,14 +115,18 @@ def srt_to_ass(
     simple_bottom: 字幕直接放在距底部 60px 的位置。
 
     可选参数（用户自定义烧录样式，不传则用默认）：
-    - font_size: 字号；None 时按 video_h // 30 自动算
+    - font_size_pct: 占视频高度的百分比（0-100），如 5 = video_h * 0.05。
+      优先级高于 font_size。不同分辨率视频视觉一致。
+    - font_size: 字号（绝对像素值）；None 时按 video_h // 30 自动算
     - font_color: hex 颜色，如 "#FFFFFF"
     - font_color_opacity: 0-1
     - pos_x_ratio / pos_y_ratio: 0-1，相对视频尺寸的字幕位置
     - text_width_ratio: 0.1-1，字幕文本宽度占比（仅影响 ASS Style MarginL/MarginR）
     """
 
-    if font_size is None:
+    if font_size_pct is not None:
+        font_size = int(video_h * font_size_pct / 100)
+    elif font_size is None:
         font_size = max(28, video_h // 30)
     outline = max(2, video_h // 500)
     margin_v = max(40, video_h // 18)

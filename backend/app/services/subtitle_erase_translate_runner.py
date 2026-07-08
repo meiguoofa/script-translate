@@ -229,7 +229,7 @@ async def _burn_local_and_upload_tos(
             video_w=video_w,
             video_h=video_h,
             placement_mode=snapshot["placement_mode"],
-            font_size=snapshot["burn_font_size"],
+            font_size_pct=snapshot["burn_font_size"],
             font_color=snapshot["burn_font_color"],
             font_color_opacity=snapshot["burn_font_color_opacity"],
             pos_x_ratio=snapshot["burn_x"],

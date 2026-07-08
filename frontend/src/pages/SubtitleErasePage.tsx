@@ -96,7 +96,7 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   captionRoiPct: 35,
   captionSep: false,
   detextRegionPct: 35,
-  burnFontSize: 72,
+  burnFontSize: 5,
   burnFontColor: "#FFFFFF",
   burnX: 0.5,
   burnY: 0.82,
@@ -660,14 +660,15 @@ export function SubtitleErasePage() {
                   <p className="text-xs text-muted-foreground">生成 [[0,{(1 - detextRegionPct / 100).toFixed(2)},1,{(detextRegionPct / 100).toFixed(2)}]]</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="burn-font-size">烧录字号</Label>
+                  <Label htmlFor="burn-font-size">烧录字号（占视频高度 %，默认 5）</Label>
                   <Input
                     id="burn-font-size"
                     type="number"
-                    min={8}
-                    max={200}
+                    min={1}
+                    max={30}
+                    step={1}
                     value={burnFontSize}
-                    onChange={(e) => setBurnFontSize(Number(e.target.value) || 72)}
+                    onChange={(e) => setBurnFontSize(Math.min(30, Math.max(1, Number(e.target.value) || 5)))}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
