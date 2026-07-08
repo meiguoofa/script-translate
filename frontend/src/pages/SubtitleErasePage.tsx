@@ -70,9 +70,9 @@ type FormParams = {
   captionFps: number;
   captionLang: string;
   captionTrack: string;
-  captionRoi: string;
+  captionRoiPct: number;
   captionSep: boolean;
-  detextLimitRegion: string;
+  detextRegionPct: number;
   burnFontSize: number;
   burnFontColor: string;
   burnX: number;
@@ -93,9 +93,9 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   captionFps: 5,
   captionLang: "ch_ml",
   captionTrack: "main",
-  captionRoi: "",
+  captionRoiPct: 35,
   captionSep: false,
-  detextLimitRegion: "",
+  detextRegionPct: 35,
   burnFontSize: 72,
   burnFontColor: "#FFFFFF",
   burnX: 0.5,
@@ -124,10 +124,10 @@ export function SubtitleErasePage() {
   const [captionFps, setCaptionFps] = useState<number>(DEFAULT_FORM_PARAMS.captionFps);
   const [captionLang, setCaptionLang] = useState<string>(DEFAULT_FORM_PARAMS.captionLang);
   const [captionTrack, setCaptionTrack] = useState<string>(DEFAULT_FORM_PARAMS.captionTrack);
-  const [captionRoi, setCaptionRoi] = useState<string>(DEFAULT_FORM_PARAMS.captionRoi);
+  const [captionRoiPct, setCaptionRoiPct] = useState<number>(DEFAULT_FORM_PARAMS.captionRoiPct);
   const [captionSep, setCaptionSep] = useState<boolean>(DEFAULT_FORM_PARAMS.captionSep);
 
-  const [detextLimitRegion, setDetextLimitRegion] = useState<string>(DEFAULT_FORM_PARAMS.detextLimitRegion);
+  const [detextRegionPct, setDetextRegionPct] = useState<number>(DEFAULT_FORM_PARAMS.detextRegionPct);
   const [burnFontSize, setBurnFontSize] = useState<number>(DEFAULT_FORM_PARAMS.burnFontSize);
   const [burnFontColor, setBurnFontColor] = useState<string>(DEFAULT_FORM_PARAMS.burnFontColor);
   const [burnX, setBurnX] = useState<number>(DEFAULT_FORM_PARAMS.burnX);
@@ -161,9 +161,15 @@ export function SubtitleErasePage() {
         if (typeof data.captionFps === "number") setCaptionFps(data.captionFps);
         if (typeof data.captionLang === "string") setCaptionLang(data.captionLang);
         if (typeof data.captionTrack === "string") setCaptionTrack(data.captionTrack);
-        if (typeof data.captionRoi === "string") setCaptionRoi(data.captionRoi);
+        if (typeof data.captionRoiPct === "number") setCaptionRoiPct(data.captionRoiPct);
+        else if (typeof data.captionRoi === "string" && data.captionRoi) {
+          try { const r = JSON.parse(data.captionRoi as string); setCaptionRoiPct(Math.round((1 - r[0][0]) * 100)); } catch { /* ignore */ }
+        }
         if (typeof data.captionSep === "boolean") setCaptionSep(data.captionSep);
-        if (typeof data.detextLimitRegion === "string") setDetextLimitRegion(data.detextLimitRegion);
+        if (typeof data.detextRegionPct === "number") setDetextRegionPct(data.detextRegionPct);
+        else if (typeof data.detextLimitRegion === "string" && data.detextLimitRegion) {
+          try { const r = JSON.parse(data.detextLimitRegion as string); setDetextRegionPct(Math.round(r[0][3] * 100)); } catch { /* ignore */ }
+        }
         if (typeof data.burnFontSize === "number") setBurnFontSize(data.burnFontSize);
         if (typeof data.burnFontColor === "string") setBurnFontColor(data.burnFontColor);
         if (typeof data.burnX === "number") setBurnX(data.burnX);
@@ -203,8 +209,8 @@ export function SubtitleErasePage() {
       const params: FormParams = {
         detextMode, translateMode, burnMode, placementMode,
         sourceLang, targetLang, modelProvider, modelName, qps,
-        captionFps, captionLang, captionTrack, captionRoi, captionSep,
-        detextLimitRegion, burnFontSize, burnFontColor,
+        captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
+        detextRegionPct, burnFontSize, burnFontColor,
         burnX, burnY, burnTextWidth,
       };
       saveSubtitleEraseSettings(params).catch(() => {
@@ -219,8 +225,8 @@ export function SubtitleErasePage() {
   }, [
     detextMode, translateMode, burnMode, placementMode,
     sourceLang, targetLang, modelProvider, modelName, qps,
-    captionFps, captionLang, captionTrack, captionRoi, captionSep,
-    detextLimitRegion, burnFontSize, burnFontColor,
+    captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
+    detextRegionPct, burnFontSize, burnFontColor,
     burnX, burnY, burnTextWidth,
   ]);
 
@@ -298,9 +304,9 @@ export function SubtitleErasePage() {
         caption_fps: captionFps,
         caption_lang: captionLang,
         caption_track: captionTrack,
-        caption_roi: captionRoi.trim() || null,
+        caption_roi: `[[${(1 - captionRoiPct / 100).toFixed(2)},1],[0,1]]`,
         caption_sep: captionSep,
-        detext_limit_region: detextLimitRegion.trim() || null,
+        detext_limit_region: `[[0,${(1 - detextRegionPct / 100).toFixed(2)},1,${(detextRegionPct / 100).toFixed(2)}]]`,
         burn_font_size: burnFontSize,
         burn_font_color: burnFontColor,
         burn_font_color_opacity: 1.0,
@@ -612,22 +618,30 @@ export function SubtitleErasePage() {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="caption-roi">字幕提取 ROI（JSON）</Label>
+                  <Label htmlFor="caption-roi">字幕区域（底部高度 %，默认 35）</Label>
                   <Input
                     id="caption-roi"
-                    value={captionRoi}
-                    onChange={(e) => setCaptionRoi(e.target.value)}
-                    placeholder='默认 [[0.65,1],[0,1]]（底部 35%）'
+                    type="number"
+                    min={5}
+                    max={80}
+                    step={5}
+                    value={captionRoiPct}
+                    onChange={(e) => setCaptionRoiPct(Math.min(80, Math.max(5, Number(e.target.value) || 35)))}
                   />
+                  <p className="text-xs text-muted-foreground">生成 ROI [[{(1 - captionRoiPct / 100).toFixed(2)},1],[0,1]]</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="limit-region">字幕擦除 LimitRegion（JSON）</Label>
+                  <Label htmlFor="limit-region">字幕擦除区域（底部高度 %，默认 35）</Label>
                   <Input
                     id="limit-region"
-                    value={detextLimitRegion}
-                    onChange={(e) => setDetextLimitRegion(e.target.value)}
-                    placeholder='默认 [[0,0.65,1,0.35]]（底部 35%）'
+                    type="number"
+                    min={5}
+                    max={80}
+                    step={5}
+                    value={detextRegionPct}
+                    onChange={(e) => setDetextRegionPct(Math.min(80, Math.max(5, Number(e.target.value) || 35)))}
                   />
+                  <p className="text-xs text-muted-foreground">生成 [[0,{(1 - detextRegionPct / 100).toFixed(2)},1,{(detextRegionPct / 100).toFixed(2)}]]</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="burn-font-size">烧录字号</Label>

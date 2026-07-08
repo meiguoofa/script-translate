@@ -93,9 +93,9 @@ export function SubtitleEraseDetailPage() {
   const [rCaptionFps, setRCaptionFps] = useState(5);
   const [rCaptionLang, setRCaptionLang] = useState("ch_ml");
   const [rCaptionTrack, setRCaptionTrack] = useState("main");
-  const [rCaptionRoi, setRCaptionRoi] = useState("");
+  const [rCaptionRoiPct, setRCaptionRoiPct] = useState(35);
   const [rCaptionSep, setRCaptionSep] = useState(false);
-  const [rDetextLimitRegion, setRDetextLimitRegion] = useState("");
+  const [rDetextRegionPct, setRDetextRegionPct] = useState(35);
   const [rBurnFontSize, setRBurnFontSize] = useState(72);
   const [rBurnFontColor, setRBurnFontColor] = useState("#FFFFFF");
   const [rBurnX, setRBurnX] = useState(0.5);
@@ -148,9 +148,9 @@ export function SubtitleEraseDetailPage() {
     setRCaptionFps(job.caption_fps);
     setRCaptionLang(job.caption_lang);
     setRCaptionTrack(job.caption_track);
-    setRCaptionRoi(job.caption_roi || "");
+    try { const r = JSON.parse(job.caption_roi || ""); setRCaptionRoiPct(Math.round((1 - r[0][0]) * 100)); } catch { setRCaptionRoiPct(35); }
     setRCaptionSep(job.caption_sep);
-    setRDetextLimitRegion(job.detext_limit_region || "");
+    try { const r = JSON.parse(job.detext_limit_region || ""); setRDetextRegionPct(Math.round(r[0][3] * 100)); } catch { setRDetextRegionPct(35); }
     setRBurnFontSize(job.burn_font_size);
     setRBurnFontColor(job.burn_font_color);
     setRBurnX(job.burn_x);
@@ -264,9 +264,9 @@ export function SubtitleEraseDetailPage() {
         caption_fps: rCaptionFps,
         caption_lang: rCaptionLang,
         caption_track: rCaptionTrack,
-        caption_roi: rCaptionRoi.trim() || null,
+        caption_roi: `[[${(1 - rCaptionRoiPct / 100).toFixed(2)},1],[0,1]]`,
         caption_sep: rCaptionSep,
-        detext_limit_region: rDetextLimitRegion.trim() || null,
+        detext_limit_region: `[[0,${(1 - rDetextRegionPct / 100).toFixed(2)},1,${(rDetextRegionPct / 100).toFixed(2)}]]`,
         burn_font_size: rBurnFontSize,
         burn_font_color: rBurnFontColor,
         burn_font_color_opacity: 1.0,
@@ -504,14 +504,16 @@ export function SubtitleEraseDetailPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>ROI（JSON）</Label>
-                <Input value={rCaptionRoi} onChange={(e) => setRCaptionRoi(e.target.value)}
-                  placeholder='[[0.65,1],[0,1]]' />
+                <Label>字幕区域（底部高度 %）</Label>
+                <Input type="number" min={5} max={80} step={5} value={rCaptionRoiPct}
+                  onChange={(e) => setRCaptionRoiPct(Math.min(80, Math.max(5, Number(e.target.value) || 35)))} />
+                <p className="text-xs text-muted-foreground">→ [[{(1 - rCaptionRoiPct / 100).toFixed(2)},1],[0,1]]</p>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>擦除 LimitRegion（JSON）</Label>
-                <Input value={rDetextLimitRegion} onChange={(e) => setRDetextLimitRegion(e.target.value)}
-                  placeholder='[[0,0.65,1,0.35]]' />
+                <Label>擦除区域（底部高度 %）</Label>
+                <Input type="number" min={5} max={80} step={5} value={rDetextRegionPct}
+                  onChange={(e) => setRDetextRegionPct(Math.min(80, Math.max(5, Number(e.target.value) || 35)))} />
+                <p className="text-xs text-muted-foreground">→ [[0,{(1 - rDetextRegionPct / 100).toFixed(2)},1,{(rDetextRegionPct / 100).toFixed(2)}]]</p>
               </div>
             </div>
             <Separator />
