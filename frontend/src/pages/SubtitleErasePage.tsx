@@ -155,8 +155,8 @@ export function SubtitleErasePage() {
         if (data.placementMode) setPlacementMode(data.placementMode as "safe_bottom" | "simple_bottom");
         if (typeof data.sourceLang === "string") setSourceLang(data.sourceLang);
         if (typeof data.targetLang === "string") setTargetLang(data.targetLang);
-        if (typeof data.modelProvider === "string") setModelProvider(data.modelProvider);
-        if (typeof data.modelName === "string") setModelName(data.modelName);
+        if (typeof data.modelProvider === "string" && data.modelProvider) setModelProvider(data.modelProvider);
+        if (typeof data.modelName === "string" && data.modelName) setModelName(data.modelName);
         if (typeof data.qps === "number") setQps(data.qps);
         if (typeof data.captionFps === "number") setCaptionFps(data.captionFps);
         if (typeof data.captionLang === "string") setCaptionLang(data.captionLang);
