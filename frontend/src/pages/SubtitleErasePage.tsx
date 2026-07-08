@@ -199,6 +199,16 @@ export function SubtitleErasePage() {
       .catch(() => toast.error("模型列表加载失败"));
   }, [verified]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // models 加载后，若 provider 有值但 model 为空，自动填该 provider 下第一个 model
+  // 解决：用户在 getModels 完成前手选 provider，model 联动漏填的问题
+  useEffect(() => {
+    if (models.length === 0) return;
+    if (!modelProvider) return;
+    if (modelName) return;
+    const first = models.find((m) => m.provider === modelProvider);
+    if (first) setModelName(first.name);
+  }, [models, modelProvider, modelName]);
+
   // 表单参数变化时防抖保存到服务器（标题和上传文件不保存）
   useEffect(() => {
     if (!settingsLoadedRef.current) return;
