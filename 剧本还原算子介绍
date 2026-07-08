@@ -1,0 +1,168 @@
+算子介绍
+描述
+短剧/电影剧本生成算子（las_short_drama_script_gen）是面向短剧以及长视频/电影等连载或超长视频内容的自动化剧本逆向提取工具。算子依托视觉多模态大模型（VLM），能够自动提取全剧/全片角色、分析人物关系，并基于画面与台词逆向生成包含场景、动作、神态及对话等细节的高质量文本剧本和角色表，助力视频内容的二次创作、出海翻译与版权保护
+
+使用限制
+输入视频需要可被服务访问，支持 http/https 和 tos://。
+视频时长限制：最短 1 秒，最长 5 小时。
+视频大小限制：最大 10 GB。
+支持的输入视频格式：mp4、mov、avi、mkv、flv、webm。
+核心功能
+角色一致性识别：突破单集、单片段孤立理解的局限，能够在长篇连载或超长电影中稳定追踪核心角色。在面临换装、侧脸或复杂场景切换时，保障跨集人物身份与设定的高度一致，最终构建完整的全局角色表。
+高保真剧本逆向还原：结合视频画面与对白台词，逆向输出专业级分镜剧本（电影模式下带有精确时间戳）。精细还原场景布置、人物情绪、肢体动作以及关键对白，提供可以直接投入二次开发或翻译校对的高质量文本底稿。
+双模式自适应架构：
+短剧模式：支持批量传入多集短剧列表，严格按照输入顺序处理，保持连载剧情的连贯性与角色一致性。
+电影模式：针对单集数小时的电影或长录像，自动启动长视频自适应处理策略，有效缓解大模型长上下文带来的细节遗忘问题。
+灵活的输出格式定制：提供开放的自定义指令（Prompt）接口。您可以根据具体的业务要求（如：侧重心理描写、特定的分镜排版格式、特定的文本标记等）自由调整单集剧本的生成样式，满足不同下游业务的直接对接需求。
+便捷的结果交付：支持将生成的角色表与全集剧本直接安全地写入您指定的云端存储（TOS），也可生成打包好的预签名下载链接。
+适用场景
+场景	描述
+短剧出海与本土化翻译	自动化生成原片多维度文本底稿，降低人工扒稿成本
+影视内容二次创作	提供高颗粒度的剧情文本和角色特征，便于二创文案撰写
+版权保护与侵权比对	视频内容的高保真文本化，固定证据链
+
+
+接口说明
+提交 las_short_drama_script_gen 算子进行短剧/电影剧本生成任务。
+
+请求参数
+参数
+类型
+必填
+示例值
+说明
+operator_id
+string
+是
+las_short_drama_script_gen
+本算子的id是 las_short_drama_script_gen
+
+operator_version
+string
+是
+v1
+目前只支持v1。
+
+
+data
+ShortDramaScriptGenReqParams
+是
+算子参数
+
+video_urls
+list of string
+是
+[tos://xxx/video.mp4]
+短剧视频（电影） URL 列表，后台自动识别短剧和电影模式，注意：算子将严格按照列表的物理索引顺序判定剧集序号（即第一个 URL 默认为第 1 集，以此类推），请务必在传入前确保列表已按剧集顺序正确排列。支持火山 TOS（tos://bucket/key）。
+
+output_tos_path
+string
+是
+tos://testbucket/path/
+结果保存的 TOS 路径。支持火山 TOS（tos://bucket/key）。
+
+custom_script_prompt
+string
+否
+自定义剧本生成 Prompt
+
+返回数据
+参数
+类型
+示例值
+说明
+
+metadata
+metadata
+请求元信息
+
+task_id
+string
+task-xxx
+异步模式下的任务 ID，用于作业状态查询。
+
+task_status
+string
+PENDING
+异步模式下的任务状态。
+
+PENDING, 接收请求
+RUNNING, 正在运行
+COMPLETED, 已经完成
+FAILED, 失败
+TIMEOUT, 超时
+business_code
+string
+0
+业务码。
+
+error_msg
+string
+如有异常，会返回详细的异常信息。
+
+
+接口说明
+查询短剧/电影剧本生成任务的执行状态和结果。
+
+请求参数
+参数
+类型
+必填
+示例值
+说明
+operator_id
+string
+是
+las_short_drama_script_gen
+算子 ID
+
+operator_version
+string
+是
+v1
+算子版本
+
+task_id
+string
+是
+task-xxx
+任务 ID
+
+返回数据
+参数
+类型
+示例值
+说明
+
+metadata
+metadata
+请求的元信息。
+
+task_status
+string
+COMPLETED
+任务状态。
+
+ACCEPTED, 接收到请求
+RUNNING, 正在运行
+COMPLETED, 已经完成
+FAILED, 失败
+business_code
+string
+ApiKey.InValid
+业务码。
+
+error_msg
+string
+The api key is invalid.
+如有异常，会返回详细的异常信息。
+
+task_id
+string
+task-xxx
+异步模式下的任务 ID。
+
+
+data
+ShortDramaGenResponse
+返回的数据。

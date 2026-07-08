@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Download,
   DownloadCloud,
   Loader2,
@@ -9,16 +12,34 @@ import {
   RotateCcw,
   XCircle,
 } from "lucide-react";
-import { getSubtitleEraseJob, retrySubtitleEraseJob } from "@/api/client";
+import {
+  getModels,
+  getSubtitleEraseJob,
+  rerunAllSubtitleEraseJob,
+  retrySubtitleEraseJob,
+} from "@/api/client";
 import type {
+  ModelOption,
   SubtitleEraseItemStage,
   SubtitleEraseItemStatus,
   SubtitleEraseJobOut,
+  SubtitleEraseRerunRequest,
 } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const JOB_BADGE: Record<
   SubtitleEraseJobOut["status"],
@@ -55,6 +76,32 @@ export function SubtitleEraseDetailPage() {
   const [job, setJob] = useState<SubtitleEraseJobOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [showRerun, setShowRerun] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]);
+
+  // rerun form state (初始值在 job 加载后更新)
+  const [rDetextMode, setRDetextMode] = useState<"basic" | "advanced">("advanced");
+  const [rTranslateMode, setRTranslateMode] = useState<"aliyun" | "llm">("llm");
+  const [rBurnMode, setRBurnMode] = useState<"local" | "aliyun" | "mps">("mps");
+  const [rPlacementMode, setRPlacementMode] = useState<"safe_bottom" | "simple_bottom">("safe_bottom");
+  const [rSourceLang, setRSourceLang] = useState("auto");
+  const [rTargetLang, setRTargetLang] = useState("zh");
+  const [rModelProvider, setRModelProvider] = useState("");
+  const [rModelName, setRModelName] = useState("");
+  const [rQps, setRQps] = useState(30);
+  const [rCaptionFps, setRCaptionFps] = useState(5);
+  const [rCaptionLang, setRCaptionLang] = useState("ch_ml");
+  const [rCaptionTrack, setRCaptionTrack] = useState("main");
+  const [rCaptionRoi, setRCaptionRoi] = useState("");
+  const [rCaptionSep, setRCaptionSep] = useState(false);
+  const [rDetextLimitRegion, setRDetextLimitRegion] = useState("");
+  const [rBurnFontSize, setRBurnFontSize] = useState(72);
+  const [rBurnFontColor, setRBurnFontColor] = useState("#FFFFFF");
+  const [rBurnX, setRBurnX] = useState(0.5);
+  const [rBurnY, setRBurnY] = useState(0.82);
+  const [rBurnTextWidth, setRBurnTextWidth] = useState(0.9);
+
   const timer = useRef<number | null>(null);
   const pollRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -85,6 +132,48 @@ export function SubtitleEraseDetailPage() {
       if (timer.current) window.clearTimeout(timer.current);
     };
   }, [jobId]);
+
+  // 当 job 加载完成后，将参数同步到 rerun 表单
+  useEffect(() => {
+    if (!job) return;
+    setRDetextMode(job.detext_mode as "basic" | "advanced");
+    setRTranslateMode(job.translate_mode as "aliyun" | "llm");
+    setRBurnMode(job.burn_mode as "local" | "aliyun" | "mps");
+    setRPlacementMode(job.placement_mode as "safe_bottom" | "simple_bottom");
+    setRSourceLang(job.source_lang || "auto");
+    setRTargetLang(job.target_lang);
+    setRModelProvider(job.model_provider || "");
+    setRModelName(job.model_name || "");
+    setRQps(job.qps);
+    setRCaptionFps(job.caption_fps);
+    setRCaptionLang(job.caption_lang);
+    setRCaptionTrack(job.caption_track);
+    setRCaptionRoi(job.caption_roi || "");
+    setRCaptionSep(job.caption_sep);
+    setRDetextLimitRegion(job.detext_limit_region || "");
+    setRBurnFontSize(job.burn_font_size);
+    setRBurnFontColor(job.burn_font_color);
+    setRBurnX(job.burn_x);
+    setRBurnY(job.burn_y);
+    setRBurnTextWidth(job.burn_text_width);
+  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 打开重新运行面板时加载模型列表
+  useEffect(() => {
+    if (!showRerun || models.length > 0) return;
+    getModels()
+      .then((list) => {
+        setModels(list);
+        if (!rModelProvider) {
+          const def = list.find((m) => m.default) ?? list[0];
+          if (def) {
+            setRModelProvider((curr) => curr || def.provider);
+            setRModelName((curr) => curr || def.name);
+          }
+        }
+      })
+      .catch(() => toast.error("模型列表加载失败"));
+  }, [showRerun]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) {
     return (
@@ -158,6 +247,49 @@ export function SubtitleEraseDetailPage() {
     }
   }
 
+  async function rerunAll() {
+    if (!job) return;
+    setRerunning(true);
+    try {
+      const payload: SubtitleEraseRerunRequest = {
+        detext_mode: rDetextMode,
+        translate_mode: rTranslateMode,
+        burn_mode: rBurnMode,
+        placement_mode: rPlacementMode,
+        source_lang: rTranslateMode === "llm" && rBurnMode !== "aliyun" ? null : rSourceLang,
+        target_lang: rTargetLang,
+        model_provider: rTranslateMode === "llm" ? rModelProvider : null,
+        model_name: rTranslateMode === "llm" ? rModelName : null,
+        qps: rQps,
+        caption_fps: rCaptionFps,
+        caption_lang: rCaptionLang,
+        caption_track: rCaptionTrack,
+        caption_roi: rCaptionRoi.trim() || null,
+        caption_sep: rCaptionSep,
+        detext_limit_region: rDetextLimitRegion.trim() || null,
+        burn_font_size: rBurnFontSize,
+        burn_font_color: rBurnFontColor,
+        burn_font_color_opacity: 1.0,
+        burn_x: rBurnX,
+        burn_y: rBurnY,
+        burn_text_width: rBurnTextWidth,
+      };
+      const data = await rerunAllSubtitleEraseJob(job.id, payload);
+      setJob(data);
+      setShowRerun(false);
+      toast.success("已重新提交全部集数");
+      if (data.status !== "completed" && data.status !== "failed") {
+        if (timer.current) window.clearTimeout(timer.current);
+        pollRef.current?.();
+      }
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || "重新运行失败";
+      toast.error(detail);
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -203,6 +335,20 @@ export function SubtitleEraseDetailPage() {
               重试失败项（{job.failed_count}）
             </Button>
           ) : null}
+          {isTerminal ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowRerun((v) => !v)}
+            >
+              {showRerun ? (
+                <ChevronUp className="mr-1 h-4 w-4" />
+              ) : (
+                <ChevronDown className="mr-1 h-4 w-4" />
+              )}
+              编辑并重新运行
+            </Button>
+          ) : null}
           {succeededItems.length > 1 ? (
             <Button size="sm" variant="secondary" onClick={downloadAll}>
               <DownloadCloud className="mr-1 h-4 w-4" />
@@ -222,6 +368,190 @@ export function SubtitleEraseDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {showRerun ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">编辑参数并重新运行全部</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>字幕擦除模式</Label>
+                <Select value={rDetextMode} onValueChange={(v) => setRDetextMode(v as "basic" | "advanced")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="advanced">高级版（algo-video-detext-new）</SelectItem>
+                    <SelectItem value="basic">基础版</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>翻译模式</Label>
+                <Select value={rTranslateMode} onValueChange={(v) => {
+                  const mode = v as "aliyun" | "llm";
+                  setRTranslateMode(mode);
+                  if (mode === "aliyun") { setRBurnMode("aliyun"); if (rSourceLang === "auto") setRSourceLang("zh"); }
+                }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="llm">LLM 翻译</SelectItem>
+                    <SelectItem value="aliyun">阿里云翻译 API</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>烧录模式</Label>
+                <Select value={rBurnMode} onValueChange={(v) => {
+                  const mode = v as "local" | "aliyun" | "mps";
+                  setRBurnMode(mode);
+                  if (mode === "local" || mode === "mps") setRTranslateMode("llm");
+                  else if (rSourceLang === "auto") setRSourceLang("zh");
+                }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mps">阿里云 MPS 烧录（推荐）</SelectItem>
+                    <SelectItem value="local">本机 ffmpeg 烧录</SelectItem>
+                    <SelectItem value="aliyun">阿里云 IMS 烧录</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>翻译目标语言</Label>
+                <Select value={rTargetLang} onValueChange={setRTargetLang}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[
+                      { value: "zh", label: "中文" }, { value: "en", label: "英文" },
+                      { value: "ja", label: "日文" }, { value: "ko", label: "韩文" },
+                      { value: "vi", label: "越南语" }, { value: "th", label: "泰语" },
+                      { value: "id", label: "印尼语" }, { value: "ms", label: "马来语" },
+                      { value: "pt", label: "葡萄牙语" },
+                    ].map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>源语言</Label>
+                <Select
+                  value={rSourceLang}
+                  disabled={rTranslateMode === "llm" && (rBurnMode === "local" || rBurnMode === "mps")}
+                  onValueChange={setRSourceLang}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[
+                      { value: "auto", label: "自动识别" }, { value: "ch_ml", label: "中英混合" },
+                      { value: "zh", label: "中文" }, { value: "en", label: "英文" },
+                    ].filter((l) => (rTranslateMode === "llm" && (rBurnMode === "local" || rBurnMode === "mps")) || l.value !== "auto")
+                      .map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {rTranslateMode === "llm" ? (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>LLM Provider</Label>
+                    <Select value={rModelProvider} onValueChange={(v) => {
+                      setRModelProvider(v);
+                      const first = models.find((m) => m.provider === v);
+                      if (first) setRModelName(first.name);
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="选择 Provider" /></SelectTrigger>
+                      <SelectContent>
+                        {[...new Set(models.map((m) => m.provider))].map((p) => (
+                          <SelectItem key={p} value={p}>{p}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>LLM 模型</Label>
+                    <Select value={rModelName} onValueChange={setRModelName}>
+                      <SelectTrigger><SelectValue placeholder="选择模型" /></SelectTrigger>
+                      <SelectContent>
+                        {models.filter((m) => m.provider === rModelProvider).map((m) => (
+                          <SelectItem key={m.name} value={m.name}>{m.label || m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : null}
+              <div className="flex flex-col gap-1.5">
+                <Label>QPS（1-100）</Label>
+                <Input type="number" min={1} max={100} value={rQps}
+                  onChange={(e) => setRQps(Math.min(100, Math.max(1, Number(e.target.value) || 30)))} />
+              </div>
+            </div>
+            <Separator />
+            <p className="text-xs font-semibold text-muted-foreground">字幕提取参数</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>FPS（2-10）</Label>
+                <Input type="number" min={2} max={10} value={rCaptionFps}
+                  onChange={(e) => setRCaptionFps(Math.min(10, Math.max(2, Number(e.target.value) || 5)))} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>字幕语言</Label>
+                <Select value={rCaptionLang} onValueChange={setRCaptionLang}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[{ value: "ch_ml", label: "中英混合" }, { value: "zh", label: "中文" },
+                      { value: "en", label: "英文" }, { value: "ja", label: "日文" }, { value: "ko", label: "韩文" }]
+                      .map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>ROI（JSON）</Label>
+                <Input value={rCaptionRoi} onChange={(e) => setRCaptionRoi(e.target.value)}
+                  placeholder='[[0.65,1],[0,1]]' />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>擦除 LimitRegion（JSON）</Label>
+                <Input value={rDetextLimitRegion} onChange={(e) => setRDetextLimitRegion(e.target.value)}
+                  placeholder='[[0,0.65,1,0.35]]' />
+              </div>
+            </div>
+            <Separator />
+            <p className="text-xs font-semibold text-muted-foreground">烧录字幕参数</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>字号</Label>
+                <Input type="number" min={8} max={200} value={rBurnFontSize}
+                  onChange={(e) => setRBurnFontSize(Number(e.target.value) || 72)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>颜色</Label>
+                <Input value={rBurnFontColor} onChange={(e) => setRBurnFontColor(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>位置 X</Label>
+                <Input type="number" min={0} max={1} step={0.01} value={rBurnX}
+                  onChange={(e) => setRBurnX(Number(e.target.value) || 0.5)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>位置 Y</Label>
+                <Input type="number" min={0} max={1} step={0.01} value={rBurnY}
+                  onChange={(e) => setRBurnY(Number(e.target.value) || 0.82)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>文本宽度</Label>
+                <Input type="number" min={0.1} max={1} step={0.01} value={rBurnTextWidth}
+                  onChange={(e) => setRBurnTextWidth(Number(e.target.value) || 0.9)} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowRerun(false)} disabled={rerunning}>取消</Button>
+              <Button onClick={rerunAll} disabled={rerunning}>
+                {rerunning ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                {rerunning ? "提交中…" : "重新运行全部"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {[...byDrama.keys()].sort((a, b) => a - b).map((di) => {
         const items = byDrama.get(di) || [];
@@ -252,6 +582,19 @@ export function SubtitleEraseDetailPage() {
                         </Badge>
                         {item.status === "running" ? (
                           <Badge variant="muted">{STAGE_LABEL[item.stage]}</Badge>
+                        ) : null}
+                        {item.warning ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="warning" className="cursor-default gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                字幕为空
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              {item.warning}
+                            </TooltipContent>
+                          </Tooltip>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">

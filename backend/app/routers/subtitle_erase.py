@@ -13,6 +13,7 @@ from app.schemas import (
     SubtitleEraseJobItemOut,
     SubtitleEraseJobOut,
     SubtitleEraseJobSummary,
+    SubtitleEraseRerunRequest,
     SubtitleEraseUploadEntry,
     SubtitleEraseUploadUrlRequest,
     SubtitleEraseUploadUrlResponse,
@@ -440,6 +441,84 @@ async def retry_failed_items(
         await run_subtitle_erase_translate_job(
             state.db, state.settings, state.registry, job.id, only_indices=failed_indices
         )
+
+    background_tasks.add_task(_runner)
+    return _job_to_out(job)
+
+
+@router.post(
+    "/{job_id}/rerun-all",
+    response_model=SubtitleEraseJobOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def rerun_all_items(
+    job_id: str,
+    payload: SubtitleEraseRerunRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
+) -> SubtitleEraseJobOut:
+    """修改参数并重新运行所有集数（包括已成功的集数）。"""
+    job = await session.get(VideoSubtitleEraseJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status not in ("completed", "failed"):
+        raise HTTPException(status_code=400, detail="只有已完成或失败的任务才能重新运行")
+
+    # 参数校验（与创建时相同）
+    if payload.translate_mode == "llm" and not (payload.model_provider and payload.model_name):
+        raise HTTPException(status_code=400, detail="LLM 翻译模式必须提供 model_provider 和 model_name")
+    if payload.translate_mode == "aliyun" and (not payload.source_lang or payload.source_lang == "auto"):
+        raise HTTPException(status_code=400, detail="阿里云翻译模式必须明确 source_lang，不能为 auto")
+    if payload.burn_mode == "aliyun" and (not payload.source_lang or payload.source_lang == "auto"):
+        raise HTTPException(status_code=400, detail="阿里云烧录模式必须明确 source_lang，不能为 auto")
+    if payload.translate_mode == "aliyun" and payload.burn_mode == "local":
+        raise HTTPException(status_code=400, detail="阿里云翻译模式必须搭配阿里云烧录（IMS 一体）")
+
+    # 更新 job 可变参数
+    job.detext_mode = payload.detext_mode
+    job.translate_mode = payload.translate_mode
+    job.burn_mode = payload.burn_mode
+    job.placement_mode = payload.placement_mode
+    job.source_lang = payload.source_lang
+    job.target_lang = payload.target_lang
+    job.model_provider = payload.model_provider
+    job.model_name = payload.model_name
+    job.qps = payload.qps
+    job.caption_fps = payload.caption_fps
+    job.caption_lang = payload.caption_lang
+    job.caption_track = payload.caption_track
+    job.caption_roi = payload.caption_roi
+    job.caption_sep = payload.caption_sep
+    job.detext_limit_region = payload.detext_limit_region
+    job.burn_font_size = payload.burn_font_size
+    job.burn_font_color = payload.burn_font_color
+    job.burn_font_color_opacity = payload.burn_font_color_opacity
+    job.burn_x = payload.burn_x
+    job.burn_y = payload.burn_y
+    job.burn_text_width = payload.burn_text_width
+
+    # 重置所有 items
+    items: list[dict] = json.loads(job.items_json or "[]")
+    for item in items:
+        item["status"] = "pending"
+        item["stage"] = "pending"
+        for f in RETRY_FIELDS:
+            item[f] = None
+    job.items_json = json.dumps(items, ensure_ascii=False)
+    job.status = "running"
+    job.progress_message = None
+    job.error_message = None
+    job.submitted_at = None
+    job.completed_at = None
+    await session.commit()
+    await session.refresh(job)
+
+    state = request.app.state
+
+    async def _runner() -> None:
+        await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
 
     background_tasks.add_task(_runner)
     return _job_to_out(job)

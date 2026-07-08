@@ -1,0 +1,101 @@
+在当前工程增加一个短剧视频还原剧本功能: 功能描述如下：
+1.能够导入一个或者多个视频到TOS,判断本地视频是否可以直传tos不需要经过服务器，可以的话直接将本地视频直传tos，然后将导入到tos的urls作为
+video_urls这个参数的输入值
+video_urls
+list of string
+是
+[tos://xxx/video.mp4]
+短剧视频（电影） URL 列表，后台自动识别短剧和电影模式，注意：算子将严格按照列表的物理索引顺序判定剧集序号（即第一个 
+URL 默认为第 1 集，以此类推），请务必在传入前确保列表已按剧集顺序正确排列。支持火山 TOS（tos://bucket/key）。
+
+2.支持设置custom_script_prompt，下面脚本示例las_custom_prompt.txt作为默认提示词(不支持修改)，支持新增提示词(不支持删除)，
+新增的提示词可以编辑，选中一个版本的提示词，调用的API根据选中版本的提示词生成剧本
+
+3.生成的剧本目前API是默认保存到TOS中，生成的剧本需要和目前工程的新建翻译功能打通，比如一个剧本生成了，支持和目前的
+新建翻译功能打通，设置相关参数后，点击开始翻译就执行任务。
+
+4.短剧还原剧本的对象存储桶使用下面这个:
+Endpoint （地域节点）
+S3 endpoint
+Bucket 域名
+外网访问
+tos-cn-beijing.volces.com
+tos-s3-cn-beijing.volces.com
+test-short-drama.tos-cn-beijing.volces.com
+内网访问
+tos-cn-beijing.ivolces.com
+tos-s3-cn-beijing.ivolces.com
+test-short-drama.tos-cn-beijing.ivolces.com
+
+5.前端要增加输入密钥，因为这个API调用费较高，当前网站IP是公开没有限制，避免无关访客访问，后端写死一个密钥，
+前端输入的密钥要和后端一致，才能执行API调用，密钥在.env中生成一个写死就行，不用太复杂
+
+6.
+，调用的接口形式如下，不要使用下面这种脚本，下面这个
+脚本只是为了说明怎么调用这个接口，接口的参数有哪些。
+调用API在 剧本还原算子介绍中有更加详细的介绍，Submit提交调用请求，Poll对调用结果进行轮询，用来判断任务是否执行结束
+
+
+
+调用接口示例:
+#!/usr/bin/env bash
+set -euo pipefail
+
+#export INPUT_PATH="https://test-short-drama.tos-cn-beijing.volces.com/test/%E7%AC%AC1%E9%9B%86.mp4"
+export INPUT_PATH="https://test-short-drama.tos-cn-beijing.volces.com/test/Adobe%20Express%20-%201335269607-1-192.mp4"
+export OUTPUT_PATH_TEMPLATE="tos://test-short-drama/output/demo1"
+export LAS_API_KEY="las-010d5ac9-824b-4b89-99cd-e9a00be1d407"
+export PROMPT_FILE="$(dirname "$0")/las_custom_prompt.txt"
+
+PAYLOAD=$(python3 - <<'PY'
+import json, os
+with open(os.environ['PROMPT_FILE'], 'r', encoding='utf-8') as f:
+    prompt = f.read()
+payload = {
+    'operator_id': 'las_short_drama_script_gen',
+    'operator_version': 'v1',
+    'data': {
+        'video_urls': [os.environ['INPUT_PATH']],
+        'output_tos_path': os.environ['OUTPUT_PATH_TEMPLATE'],
+        'custom_script_prompt': prompt,
+    },
+}
+print(json.dumps(payload, ensure_ascii=False))
+PY
+)
+
+curl --location "https://operator.las.cn-beijing.volces.com/api/v1/submit" \
+  --header "Content-Type: application/json" \
+  --header "Authorization: Bearer $LAS_API_KEY" \
+  --data "$PAYLOAD"
+echo
+
+las_custom_prompt.txt的内容如下:
+请观看整集视频，结合上面的全局角色表，把它还原成一份"分场短剧剧本"。核心目标：让读者只读文字就能在脑中重演整集，并且能分清每句台词是在哪个画面下、由谁说出。
+
+【整体要求】
+- 不要输出总标题、剧情简介或场景目录，直接从第一场写起。
+- 以"场"为单位：时间、地点或情境发生明显切换时，就开一个新场。场与场之间空一行。
+- 全程只依据视频画面与角色表，不要编造画面里没有的剧情或台词。角色名以角色表为准；若角色表里是"未知××"之类占位名，用画面能看出的自然称呼（如"管家""护士"）替代，不要带 ID 或编号。
+
+【每一场的写法】
+1) 场号行：`集号-场号 时间 内/外 地点——子地点`，例如 `1-1 夜 内 霍家别墅——餐厅/客厅`。集号固定为 1，场号顺次递增；回忆/闪回在时间前点明，如 `回忆日`。
+2) 人物行：`人物：角色1，角色2`，全角逗号分隔。
+3) 正文按事情在视频里真实发生的先后，让画面与台词交错推进：
+   - 先写一段以 `△ ` 开头的画面描写（环境、动作、神态、镜头）。
+   - 紧跟这段画面里说出的台词，写作 `角色名：台词内容`；内心独白或画外音用 `角色名（OS）：台词内容`。
+   - 然后再推进到下一段 `△ ` 画面。如此一段画面、一段台词交替往下，不要把整场的画面堆成一坨、再把所有台词堆成一坨。
+
+【排版（务必遵守）】
+- 输出纯文本/markdown，不要用代码块包裹。
+- 每一行（场号行、人物行、每条△画面、每句台词）都各占一行，且行尾追加两个半角空格，确保 markdown 渲染时每行都能正确换行。
+- 场与场之间留一个空行。
+
+【格式示意（只示范格式，内容以实际视频为准）】
+1-1 夜 内 霍家别墅——餐厅/客厅
+人物：霍庭寒，陆微澜
+△ 宽敞的餐厅内，霍庭寒用餐后拿餐巾擦嘴，陆微澜走到他身边。
+陆微澜：庭寒你怎么提前走了？
+霍庭寒：他们高不高兴与我无关。
+△ 陆微澜想碰他的肩膀，霍庭寒侧身躲开，起身倒水。
+霍庭寒：没事的话，你可以走了。

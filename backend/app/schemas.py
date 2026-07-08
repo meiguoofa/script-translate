@@ -486,6 +486,32 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     original_filenames: list[str] | None = None
 
 
+class SubtitleEraseRerunRequest(BaseModel):
+    """重新运行已有任务时可修改的参数（不含视频文件列表）。"""
+
+    detext_mode: str = Field(pattern="^(basic|advanced)$")
+    translate_mode: str = Field(pattern="^(aliyun|llm)$")
+    burn_mode: str = Field(pattern="^(local|aliyun|mps)$")
+    placement_mode: str = Field(pattern="^(safe_bottom|simple_bottom)$")
+    source_lang: str | None = None
+    target_lang: str
+    model_provider: str | None = None
+    model_name: str | None = None
+    qps: int = Field(ge=1, le=100)
+    caption_fps: int = Field(ge=2, le=10)
+    caption_lang: str
+    caption_track: str
+    caption_roi: str | None = None
+    caption_sep: bool
+    detext_limit_region: str | None = None
+    burn_font_size: int = Field(ge=8, le=200)
+    burn_font_color: str
+    burn_font_color_opacity: float = Field(ge=0.0, le=1.0)
+    burn_x: float = Field(ge=0.0, le=1.0)
+    burn_y: float = Field(ge=0.0, le=1.0)
+    burn_text_width: float = Field(ge=0.1, le=1.0)
+
+
 class SubtitleEraseJobItemOut(BaseModel):
     index: int
     drama_index: int
@@ -521,6 +547,7 @@ class SubtitleEraseJobItemOut(BaseModel):
     stage: str
     status: str
     error: str | None
+    warning: str | None = None
 
 
 class SubtitleEraseJobOut(BaseModel):

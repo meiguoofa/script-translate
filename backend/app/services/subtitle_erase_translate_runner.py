@@ -61,6 +61,7 @@ RETRY_FIELDS = (
     "mps_job_id",
     "burn_ass_oss_uri",
     "error",
+    "warning",
 )
 
 
@@ -447,6 +448,17 @@ async def _run_episode(
         logger.exception("srt clean %s/%d failed", job_id, index)
         item["status"] = "failed"
         item["error"] = f"SRT 清洗失败: {exc}"
+        await _persist_items(db, job_id, items)
+        return
+
+    # 空 SRT 检测：字幕提取结果为空，跳过翻译和烧录，直接以擦除视频作为输出
+    if not parse_srt(cleaned_srt_text):
+        logger.warning("srt empty %s/%d, skipping translate+burn", job_id, index)
+        item["warning"] = "字幕提取为空，已跳过翻译和烧录（输出为无字幕的擦除视频）"
+        item["output_video_oss_uri"] = item.get("clean_video_oss_uri")
+        item["output_public_url"] = item.get("clean_video_public_url")
+        item["stage"] = "done"
+        item["status"] = "succeeded"
         await _persist_items(db, job_id, items)
         return
 

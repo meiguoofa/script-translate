@@ -367,6 +367,7 @@ export type SubtitleEraseJobItemOut = {
   stage: SubtitleEraseItemStage;
   status: SubtitleEraseItemStatus;
   error: string | null;
+  warning: string | null;
 };
 
 export type SubtitleEraseJobOut = {
@@ -462,4 +463,28 @@ export type SubtitleEraseJobCreateInput = {
   burn_text_width: number;
   items: SubtitleEraseJobItemInput[];
   original_filenames?: string[] | null;
+};
+
+export type SubtitleEraseRerunRequest = {
+  detext_mode: "basic" | "advanced";
+  translate_mode: "aliyun" | "llm";
+  burn_mode: "local" | "aliyun" | "mps";
+  placement_mode: "safe_bottom" | "simple_bottom";
+  source_lang?: string | null;
+  target_lang: string;
+  model_provider?: string | null;
+  model_name?: string | null;
+  qps: number;
+  caption_fps: number;
+  caption_lang: string;
+  caption_track: string;
+  caption_roi?: string | null;
+  caption_sep: boolean;
+  detext_limit_region?: string | null;
+  burn_font_size: number;
+  burn_font_color: string;
+  burn_font_color_opacity: number;
+  burn_x: number;
+  burn_y: number;
+  burn_text_width: number;
 };

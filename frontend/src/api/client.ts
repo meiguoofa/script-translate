@@ -14,6 +14,7 @@ import type {
   SubtitleEraseJobCreateInput,
   SubtitleEraseJobOut,
   SubtitleEraseJobSummary,
+  SubtitleEraseRerunRequest,
   SubtitleEraseUploadUrlResponse,
   SubtitleJobOut,
   SubtitleJobSummary,
@@ -309,6 +310,11 @@ export async function getSubtitleEraseJob(jobId: string) {
 
 export async function retrySubtitleEraseJob(jobId: string) {
   const response = await client.post<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}/retry`);
+  return response.data;
+}
+
+export async function rerunAllSubtitleEraseJob(jobId: string, payload: SubtitleEraseRerunRequest) {
+  const response = await client.post<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}/rerun-all`, payload);
   return response.data;
 }
 

@@ -183,13 +183,11 @@ export function SubtitleErasePage() {
     getModels()
       .then((list) => {
         setModels(list);
-        // 仅当没有已保存的 provider/model 时，才用默认值
-        if (!modelProvider && !modelName) {
-          const def = list.find((m) => m.default) ?? list[0];
-          if (def) {
-            setModelProvider(def.provider);
-            setModelName(def.name);
-          }
+        // 用函数式更新避免 stale closure：仅当当前值为空时才填默认
+        const def = list.find((m) => m.default) ?? list[0];
+        if (def) {
+          setModelProvider((curr) => curr || def.provider);
+          setModelName((curr) => curr || def.name);
         }
       })
       .catch(() => toast.error("模型列表加载失败"));

@@ -150,10 +150,17 @@ class ProviderRegistry:
             )
             self._add_model(
                 provider="mobinova",
+                name="gpt-5.4",
+                label="Mobinova GPT-5.4",
+                target_langs=["zh", "en", "th", "ar"],
+                default=self.settings.default_provider == "mobinova",
+            )
+            self._add_model(
+                provider="mobinova",
                 name="gpt-5.5",
                 label="Mobinova GPT-5.5",
                 target_langs=["zh", "en", "th", "ar"],
-                default=self.settings.default_provider == "mobinova",
+                default=False,
             )
 
     def _validate_default_provider(self) -> None:
