@@ -216,9 +216,14 @@ export function SubtitleErasePage() {
       window.clearTimeout(saveTimerRef.current);
     }
     saveTimerRef.current = window.setTimeout(() => {
+      // 关键：modelProvider/modelName 为空时用默认值兜底，避免保存空字符串
+      // 否则下次加载会用空字符串覆盖 getModels 填的默认值，形成循环
+      const defModel = models.find((m) => m.default) ?? models[0];
+      const provider = modelProvider || defModel?.provider || "";
+      const name = modelName || defModel?.name || "";
       const params: FormParams = {
         detextMode, translateMode, burnMode, placementMode,
-        sourceLang, targetLang, modelProvider, modelName, qps,
+        sourceLang, targetLang, modelProvider: provider, modelName: name, qps,
         captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
         detextRegionPct, burnFontSize, burnFontColor,
         burnX, burnY, burnTextWidth,
@@ -238,6 +243,7 @@ export function SubtitleErasePage() {
     captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
     detextRegionPct, burnFontSize, burnFontColor,
     burnX, burnY, burnTextWidth,
+    models,
   ]);
 
   if (!verified) {
