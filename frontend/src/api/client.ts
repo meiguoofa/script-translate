@@ -343,6 +343,11 @@ export async function retrySubtitleEraseJob(jobId: string) {
   return response.data;
 }
 
+export async function stopSubtitleEraseJob(jobId: string) {
+  const response = await client.post<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}/stop`);
+  return response.data;
+}
+
 export async function rerunAllSubtitleEraseJob(jobId: string, payload: SubtitleEraseRerunRequest) {
   const response = await client.post<SubtitleEraseJobOut>(`/subtitle-erase/${jobId}/rerun-all`, payload);
   return response.data;

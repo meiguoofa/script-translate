@@ -67,6 +67,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ### 6. 严禁清除或者删除数据库数据，数据库发生变动要对数据进行迁移
 
-### 7. 前端或者后端代码发生变动，要重新在服务器上部署生效
+### 7. 前端或者后端代码发生变动，要重新在本服务器上部署生效
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

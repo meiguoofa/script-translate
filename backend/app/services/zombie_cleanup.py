@@ -16,9 +16,12 @@ from app.models import (
 logger = logging.getLogger("zombie_cleanup")
 
 # 任务超过这个时间没更新且仍处于 running，视为僵尸任务
-ZOMBIE_TIMEOUT_MINUTES = 10
+# 必须 > ims_poll_timeout_seconds/60 (=180)，否则正常 IMS 轮询期间会被误判
+ZOMBIE_TIMEOUT_MINUTES = 200
 
 ZOMBIE_ERROR_MSG = "任务执行过程中服务重启，后台任务丢失（已自动标记为失败，请重新提交）"
+
+ABORT_ERROR_MSG = "用户手动停止任务（可调用 /retry 重试失败项）"
 
 
 async def cleanup_zombie_jobs(db: Database) -> int:
@@ -66,3 +69,22 @@ async def cleanup_zombie_jobs(db: Database) -> int:
     if total > 0:
         logger.info("共清理 %d 个 zombie job", total)
     return total
+
+
+async def abort_running_job(db: Database, job_id: str, model) -> bool:
+    """把指定 job 强制标记为 failed，允许后续 retry。返回是否命中。
+
+    用于用户主动停止 running 任务：job 仍在 running 但用户想终止时调用。
+    """
+    async with await db.session() as session:
+        row = await session.get(model, job_id)
+        if row is None:
+            return False
+        if row.status != "running":
+            return False
+        row.status = "failed"
+        row.error_message = ABORT_ERROR_MSG
+        if row.completed_at is None:
+            row.completed_at = datetime.now(timezone.utc)
+        await session.commit()
+        return True

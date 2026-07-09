@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -45,6 +46,20 @@ def get_application_state() -> ApplicationState:
     return _application_state
 
 
+async def _zombie_cleanup_loop(db: Database) -> None:
+    """每 60 分钟扫描一次僵尸任务，避免服务长期运行时卡住的任务不被清理。"""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            cleaned = await cleanup_zombie_jobs(db)
+            if cleaned:
+                logging.getLogger("app.main").info(
+                    "周期清理了 %d 个 zombie job", cleaned
+                )
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger("app.main").warning("周期 zombie cleanup 失败: %s", exc)
+
+
 def create_app() -> FastAPI:
     global _application_state
 
@@ -63,7 +78,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 启动时清理上次服务重启遗留的 zombie job（status=running 但 updated_at > 10min）
+        # 启动时清理上次服务重启遗留的 zombie job（status=running 但 updated_at 超时）
         await db.init_models()
         try:
             cleaned = await cleanup_zombie_jobs(db)
@@ -74,7 +89,16 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             # 清理失败不阻塞启动
             logging.getLogger("app.main").warning("zombie cleanup 失败（不阻塞启动）: %s", exc)
-        yield
+
+        cleanup_task = asyncio.create_task(_zombie_cleanup_loop(db))
+        try:
+            yield
+        finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings

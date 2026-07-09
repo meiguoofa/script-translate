@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
+  Square,
   XCircle,
 } from "lucide-react";
 import {
@@ -17,6 +18,7 @@ import {
   getSubtitleEraseJob,
   rerunAllSubtitleEraseJob,
   retrySubtitleEraseJob,
+  stopSubtitleEraseJob,
 } from "@/api/client";
 import type {
   ModelOption,
@@ -76,6 +78,7 @@ export function SubtitleEraseDetailPage() {
   const [job, setJob] = useState<SubtitleEraseJobOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [showRerun, setShowRerun] = useState(false);
   const [rerunning, setRerunning] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -247,6 +250,21 @@ export function SubtitleEraseDetailPage() {
     }
   }
 
+  async function stopRunning() {
+    if (!job) return;
+    setStopping(true);
+    try {
+      const data = await stopSubtitleEraseJob(job.id);
+      setJob(data);
+      toast.success("已停止任务，可重试失败项");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || "停止任务失败";
+      toast.error(detail);
+    } finally {
+      setStopping(false);
+    }
+  }
+
   async function rerunAll() {
     if (!job) return;
     setRerunning(true);
@@ -333,6 +351,21 @@ export function SubtitleEraseDetailPage() {
                 <RotateCcw className="mr-1 h-4 w-4" />
               )}
               重试失败项（{job.failed_count}）
+            </Button>
+          ) : null}
+          {job.status === "running" ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={stopRunning}
+              disabled={stopping}
+            >
+              {stopping ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Square className="mr-1 h-4 w-4" />
+              )}
+              停止任务
             </Button>
           ) : null}
           {isTerminal ? (

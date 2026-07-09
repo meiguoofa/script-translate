@@ -1,6 +1,7 @@
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -30,6 +31,7 @@ from app.services.subtitle_erase_translate_runner import (
     RETRY_FIELDS,
     run_subtitle_erase_translate_job,
 )
+from app.services.zombie_cleanup import ABORT_ERROR_MSG
 
 router = APIRouter(prefix="/subtitle-erase", tags=["subtitle-erase"])
 
@@ -507,6 +509,38 @@ async def get_subtitle_erase_job(
     job = await session.get(VideoSubtitleEraseJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="任务不存在")
+    return _job_to_out(job)
+
+
+@router.post(
+    "/{job_id}/stop",
+    response_model=SubtitleEraseJobOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def stop_running_job(
+    job_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> SubtitleEraseJobOut:
+    """强制停止 running 状态的任务，标记为 failed 后可调 /retry 重试。"""
+    job = await session.get(VideoSubtitleEraseJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status != "running":
+        raise HTTPException(
+            status_code=400, detail=f"只有 running 状态的任务才能停止（当前: {job.status}）"
+        )
+    job.status = "failed"
+    job.error_message = ABORT_ERROR_MSG
+    if job.completed_at is None:
+        job.completed_at = datetime.now(timezone.utc)
+    items: list[dict] = json.loads(job.items_json or "[]")
+    for it in items:
+        if it.get("status") == "running":
+            it["status"] = "failed"
+            it["error"] = ABORT_ERROR_MSG
+    job.items_json = json.dumps(items, ensure_ascii=False)
+    await session.commit()
+    await session.refresh(job)
     return _job_to_out(job)
 
 

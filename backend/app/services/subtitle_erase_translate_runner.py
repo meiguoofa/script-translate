@@ -322,6 +322,36 @@ async def _run_episode(
     """单集流水线：提取 → 擦除 → 清洗 → 翻译 → 烧录 → 输出。"""
 
     item = items[index]
+    try:
+        await _run_episode_impl(
+            db, job_id, ims, oss, registry, settings, snapshot, items, index
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("_run_episode %s/%d top-level error", job_id, index)
+        item["status"] = "failed"
+        item["error"] = f"未捕获异常: {exc}"[:1000]
+        try:
+            await _persist_items(db, job_id, items)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "persist failed items after top-level error %s/%d", job_id, index
+            )
+
+
+async def _run_episode_impl(
+    db: Database,
+    job_id: str,
+    ims: IMSClient,
+    oss: AliyunOSSClient,
+    registry: ProviderRegistry | None,
+    settings: Settings,
+    snapshot: dict,
+    items: list[dict],
+    index: int,
+) -> None:
+    """单集流水线实际实现:提取 -> 擦除 -> 清洗 -> 翻译 -> 烧录 -> 输出。"""
+
+    item = items[index]
     drama_index = item.get("drama_index", 0)
     episode_index = item.get("episode_index", 0)
     filename = item.get("filename", "")
@@ -685,7 +715,17 @@ async def run_subtitle_erase_translate_job(
               for ep_idx in episode_indices)
         )
 
-    await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
+    try:
+        await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("run_subtitle_erase_translate_job %s top-level error", job_id)
+        await _set_job_fields(
+            db, job_id, status="failed",
+            error_message=f"未捕获异常: {exc}"[:1000],
+            progress_message="任务异常终止",
+            completed_at=datetime.now(timezone.utc),
+        )
+        return
 
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")
