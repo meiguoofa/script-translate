@@ -429,6 +429,7 @@ class SubtitleEraseUploadFileSpec(BaseModel):
 
 class SubtitleEraseUploadUrlRequest(BaseModel):
     files: list[SubtitleEraseUploadFileSpec]
+    job_id: str | None = None
 
 
 class SubtitleEraseUploadEntry(BaseModel):
@@ -443,6 +444,58 @@ class SubtitleEraseUploadUrlResponse(BaseModel):
     job_id: str
     expires_in: int
     entries: list[SubtitleEraseUploadEntry]
+
+
+class SubtitleEraseMultipartPartInfo(BaseModel):
+    part_number: int
+    offset: int
+    size: int
+    presigned_url: str
+
+
+class SubtitleEraseMultipartUploadUrlRequest(BaseModel):
+    filename: str
+    content_type: str = "video/mp4"
+    file_size: int = Field(ge=1)
+    job_id: str | None = None
+    index: int = Field(default=0, ge=0)
+
+
+class SubtitleEraseMultipartUploadUrlResponse(BaseModel):
+    job_id: str
+    upload_id: str
+    key: str
+    oss_uri: str
+    public_url: str
+    part_size: int
+    parts: list[SubtitleEraseMultipartPartInfo]
+    expires_in: int
+
+
+class SubtitleEraseCompletePart(BaseModel):
+    part_number: int
+    etag: str
+
+
+class SubtitleEraseCompleteMultipartRequest(BaseModel):
+    job_id: str
+    key: str
+    upload_id: str
+    parts: list[SubtitleEraseCompletePart]
+
+
+class SubtitleEraseCompleteMultipartResponse(BaseModel):
+    public_url: str
+    oss_uri: str
+
+
+class SubtitleEraseAbortMultipartRequest(BaseModel):
+    key: str
+    upload_id: str
+
+
+class SubtitleEraseAbortMultipartResponse(BaseModel):
+    ok: bool = True
 
 
 class SubtitleEraseJobItemSpec(BaseModel):

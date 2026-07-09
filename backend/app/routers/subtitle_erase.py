@@ -9,10 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_session, get_settings, require_passphrase
 from app.models import AppSetting, VideoSubtitleEraseJob
 from app.schemas import (
+    SubtitleEraseAbortMultipartRequest,
+    SubtitleEraseAbortMultipartResponse,
+    SubtitleEraseCompleteMultipartRequest,
+    SubtitleEraseCompleteMultipartResponse,
     SubtitleEraseJobCreateRequest,
     SubtitleEraseJobItemOut,
     SubtitleEraseJobOut,
     SubtitleEraseJobSummary,
+    SubtitleEraseMultipartPartInfo,
+    SubtitleEraseMultipartUploadUrlRequest,
+    SubtitleEraseMultipartUploadUrlResponse,
     SubtitleEraseRerunRequest,
     SubtitleEraseUploadEntry,
     SubtitleEraseUploadUrlRequest,
@@ -168,7 +175,7 @@ async def create_upload_urls(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    job_id = str(uuid.uuid4())
+    job_id = payload.job_id or str(uuid.uuid4())
     expires_in = 3600
     entries: list[SubtitleEraseUploadEntry] = []
     prefix = settings.oss_subtitle_erase_input_prefix.rstrip("/") or "subtitle-erase-input"
@@ -186,6 +193,107 @@ async def create_upload_urls(
             )
         )
     return SubtitleEraseUploadUrlResponse(job_id=job_id, expires_in=expires_in, entries=entries)
+
+
+@router.post(
+    "/upload-multipart-url",
+    response_model=SubtitleEraseMultipartUploadUrlResponse,
+    dependencies=[Depends(require_passphrase)],
+)
+async def create_multipart_upload_urls(
+    payload: SubtitleEraseMultipartUploadUrlRequest,
+    settings=Depends(get_settings),
+) -> SubtitleEraseMultipartUploadUrlResponse:
+    """大文件分片上传：init_multipart + 为每个 part 签 PUT URL。
+
+    前端按 parts 切片并发 PUT 到 OSS，全部成功后调 /complete-multipart。
+    """
+    try:
+        oss = AliyunOSSClient(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    job_id = payload.job_id or str(uuid.uuid4())
+    safe = _safe_filename(payload.filename)
+    prefix = settings.oss_subtitle_erase_input_prefix.rstrip("/") or "subtitle-erase-input"
+    key = f"{prefix}/{job_id}/{payload.index:02d}-{safe}"
+    expires_in = 3600
+    try:
+        result = oss.presign_multipart_put(
+            key,
+            content_type=payload.content_type,
+            file_size=payload.file_size,
+            expires_in=expires_in,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"init multipart failed: {exc}") from exc
+    return SubtitleEraseMultipartUploadUrlResponse(
+        job_id=job_id,
+        upload_id=result.upload_id,
+        key=result.key,
+        oss_uri=result.oss_uri,
+        public_url=result.public_url,
+        part_size=8 * 1024 * 1024,
+        parts=[
+            SubtitleEraseMultipartPartInfo(
+                part_number=p.part_number,
+                offset=p.offset,
+                size=p.size,
+                presigned_url=p.presigned_url,
+            )
+            for p in result.parts
+        ],
+        expires_in=expires_in,
+    )
+
+
+@router.post(
+    "/complete-multipart",
+    response_model=SubtitleEraseCompleteMultipartResponse,
+    dependencies=[Depends(require_passphrase)],
+)
+async def complete_multipart(
+    payload: SubtitleEraseCompleteMultipartRequest,
+    settings=Depends(get_settings),
+) -> SubtitleEraseCompleteMultipartResponse:
+    try:
+        oss = AliyunOSSClient(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    sorted_parts = sorted(payload.parts, key=lambda p: p.part_number)
+    expected = list(range(1, len(sorted_parts) + 1))
+    if [p.part_number for p in sorted_parts] != expected:
+        raise HTTPException(status_code=400, detail="part_number 不连续")
+    try:
+        public_url, oss_uri = oss.complete_multipart(
+            payload.key,
+            payload.upload_id,
+            [
+                {"part_number": p.part_number, "etag": p.etag}
+                for p in sorted_parts
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"complete failed: {exc}") from exc
+    return SubtitleEraseCompleteMultipartResponse(public_url=public_url, oss_uri=oss_uri)
+
+
+@router.post(
+    "/abort-multipart",
+    response_model=SubtitleEraseAbortMultipartResponse,
+    dependencies=[Depends(require_passphrase)],
+)
+async def abort_multipart(
+    payload: SubtitleEraseAbortMultipartRequest,
+    settings=Depends(get_settings),
+) -> SubtitleEraseAbortMultipartResponse:
+    try:
+        oss = AliyunOSSClient(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    oss.abort_multipart(payload.key, payload.upload_id)
+    return SubtitleEraseAbortMultipartResponse(ok=True)
 
 
 @router.post(

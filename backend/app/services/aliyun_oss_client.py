@@ -24,6 +24,7 @@ PART_SIZE = 5 * 1024 * 1024  # 5MB
 MAX_PART_RETRIES = 6
 RETRY_BACKOFF_BASE = 2  # 指数退避：2, 4, 8, 16, 32, 64 秒
 COPY_RETRIES = 4
+MULTIPART_PART_SIZE = 8 * 1024 * 1024  # 8MB/片（前端分片上传）
 
 
 @dataclass
@@ -32,6 +33,23 @@ class PresignedPutResult:
     presigned_url: str
     public_url: str
     oss_uri: str
+
+
+@dataclass
+class PresignedMultipartPart:
+    part_number: int
+    offset: int
+    size: int
+    presigned_url: str
+
+
+@dataclass
+class PresignedMultipartResult:
+    key: str
+    upload_id: str
+    public_url: str
+    oss_uri: str
+    parts: list[PresignedMultipartPart]
 
 
 class AliyunOSSClient:
@@ -135,6 +153,77 @@ class AliyunOSSClient:
             public_url=self.public_url(key),
             oss_uri=self.oss_uri(key),
         )
+
+    def presign_multipart_put(
+        self,
+        key: str,
+        content_type: str,
+        file_size: int,
+        part_size: int = MULTIPART_PART_SIZE,
+        expires_in: int = 3600,
+    ) -> PresignedMultipartResult:
+        """初始化 multipart upload 并为每个 part 签 PUT URL。
+
+        前端按返回的 parts 切片并发 PUT 到 OSS，全部成功后调 complete_multipart。
+        签 URL 失败时 abort 已创建的 upload，避免 OSS 残留分片计费。
+        """
+        bucket = self._fresh_bucket()
+        ct = content_type or "video/mp4"
+        init = bucket.init_multipart_upload(key, headers={"Content-Type": ct})
+        upload_id = init.upload_id
+        try:
+            parts: list[PresignedMultipartPart] = []
+            offset = 0
+            part_number = 1
+            while offset < file_size:
+                size = min(part_size, file_size - offset)
+                url = bucket.sign_url(
+                    "PUT",
+                    key,
+                    expires_in,
+                    slash_safe=True,
+                    params={"uploadId": upload_id, "partNumber": str(part_number)},
+                    headers={"Content-Type": ct},
+                )
+                parts.append(
+                    PresignedMultipartPart(part_number, offset, size, url)
+                )
+                offset += size
+                part_number += 1
+            return PresignedMultipartResult(
+                key=key,
+                upload_id=upload_id,
+                public_url=self.public_url(key),
+                oss_uri=self.oss_uri(key),
+                parts=parts,
+            )
+        except Exception:
+            try:
+                self._fresh_bucket().abort_multipart_upload(key, upload_id)
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+
+    def complete_multipart(
+        self, key: str, upload_id: str, parts: list[dict]
+    ) -> tuple[str, str]:
+        """完成分片上传。parts: [{part_number, etag}](etag 保留双引号原样回传)。
+
+        返回 (public_url, oss_uri)。
+        """
+        bucket = self._fresh_bucket()
+        infos = [
+            oss2.models.PartInfo(p["part_number"], p["etag"]) for p in parts
+        ]
+        bucket.complete_multipart_upload(key, upload_id, infos)
+        return self.public_url(key), self.oss_uri(key)
+
+    def abort_multipart(self, key: str, upload_id: str) -> None:
+        """幂等 abort。upload_id 不存在不算错。"""
+        try:
+            self._fresh_bucket().abort_multipart_upload(key, upload_id)
+        except Exception:  # noqa: BLE001
+            pass
 
     def put_object_from_url(
         self, key: str, source_url: str, content_type: str = "video/mp4"

@@ -14,6 +14,9 @@ import type {
   SubtitleEraseJobCreateInput,
   SubtitleEraseJobOut,
   SubtitleEraseJobSummary,
+  SubtitleEraseCompleteMultipartInput,
+  SubtitleEraseCompleteMultipartResponse,
+  SubtitleEraseMultipartUploadUrlResponse,
   SubtitleEraseRerunRequest,
   SubtitleEraseUploadUrlResponse,
   SubtitleJobOut,
@@ -288,6 +291,7 @@ export async function listSubtitleJobs(params?: { limit?: number; offset?: numbe
 
 export type SubtitleEraseUploadUrlInput = {
   files: { filename: string; content_type: string }[];
+  job_id?: string;
 };
 
 export async function requestSubtitleEraseUploadUrls(payload: SubtitleEraseUploadUrlInput) {
@@ -296,6 +300,32 @@ export async function requestSubtitleEraseUploadUrls(payload: SubtitleEraseUploa
     payload
   );
   return response.data;
+}
+
+export async function requestMultipartUploadUrls(payload: {
+  filename: string;
+  content_type: string;
+  file_size: number;
+  job_id?: string;
+  index?: number;
+}) {
+  const response = await client.post<SubtitleEraseMultipartUploadUrlResponse>(
+    "/subtitle-erase/upload-multipart-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function completeMultipartUpload(payload: SubtitleEraseCompleteMultipartInput) {
+  const response = await client.post<SubtitleEraseCompleteMultipartResponse>(
+    "/subtitle-erase/complete-multipart",
+    payload
+  );
+  return response.data;
+}
+
+export async function abortMultipartUpload(key: string, upload_id: string) {
+  await client.post("/subtitle-erase/abort-multipart", { key, upload_id });
 }
 
 export async function createSubtitleEraseJob(payload: SubtitleEraseJobCreateInput) {

@@ -326,6 +326,36 @@ export type SubtitleEraseUploadUrlResponse = {
   entries: SubtitleEraseUploadEntry[];
 };
 
+export type SubtitleEraseMultipartPartInfo = {
+  part_number: number;
+  offset: number;
+  size: number;
+  presigned_url: string;
+};
+
+export type SubtitleEraseMultipartUploadUrlResponse = {
+  job_id: string;
+  upload_id: string;
+  key: string;
+  oss_uri: string;
+  public_url: string;
+  part_size: number;
+  parts: SubtitleEraseMultipartPartInfo[];
+  expires_in: number;
+};
+
+export type SubtitleEraseCompleteMultipartInput = {
+  job_id: string;
+  key: string;
+  upload_id: string;
+  parts: { part_number: number; etag: string }[];
+};
+
+export type SubtitleEraseCompleteMultipartResponse = {
+  public_url: string;
+  oss_uri: string;
+};
+
 export type SubtitleEraseItemStage =
   | "pending"
   | "extracting"

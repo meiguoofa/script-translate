@@ -7,9 +7,12 @@ import {
   getModels,
   getSubtitleEraseSettings,
   requestSubtitleEraseUploadUrls,
+  requestMultipartUploadUrls,
+  completeMultipartUpload,
+  abortMultipartUpload,
   saveSubtitleEraseSettings,
 } from "@/api/client";
-import type { ModelOption, SubtitleEraseUploadEntry } from "@/api/types";
+import type { ModelOption } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,6 +30,121 @@ import { toast } from "@/components/ui/sonner";
 import { MultiFolderDropzone, type Drama } from "@/components/MultiFolderDropzone";
 import { PassphraseGate } from "@/components/PassphraseGate";
 import { getPassphrase } from "@/lib/passphrase";
+
+const MULTIPART_THRESHOLD = 10 * 1024 * 1024; // <10MB 走单 PUT，≥10MB 走分片
+const PART_CONCURRENCY = 5; // 前端分片并发数
+const PART_MAX_RETRY = 3; // 单 part 失败重试次数
+
+type UploadedFileResult = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  key: string;
+  drama_index: number;
+  episode_index: number;
+};
+
+async function uploadOneFileMultipart(
+  file: File,
+  job_id: string,
+  index: number,
+  drama_index: number,
+  episode_index: number,
+  setProgress: React.Dispatch<React.SetStateAction<Record<string, number>>>
+): Promise<UploadedFileResult> {
+  const init = await requestMultipartUploadUrls({
+    filename: file.name,
+    content_type: file.type || "video/mp4",
+    file_size: file.size,
+    job_id,
+    index,
+  });
+  const contentType = file.type || "video/mp4";
+  const uploadedBytes = new Array(init.parts.length).fill(0);
+  const results: { part_number: number; etag: string }[] = [];
+
+  const updatePct = () => {
+    const loaded = uploadedBytes.reduce((a, b) => a + b, 0);
+    setProgress((prev) => ({
+      ...prev,
+      [`${drama_index}-${episode_index}`]: Math.round((loaded / file.size) * 100),
+    }));
+  };
+
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < init.parts.length) {
+      const idx = cursor++;
+      const p = init.parts[idx];
+      const blob = file.slice(p.offset, p.offset + p.size);
+      let etag: string | null = null;
+      for (let attempt = 0; attempt < PART_MAX_RETRY; attempt++) {
+        try {
+          const resp = await axios.put(p.presigned_url, blob, {
+            headers: { "Content-Type": contentType },
+            onUploadProgress: (e) => {
+              uploadedBytes[idx] = Math.min(p.size, e.loaded || 0);
+              updatePct();
+            },
+          });
+          etag = resp.headers["etag"];
+          uploadedBytes[idx] = p.size;
+          updatePct();
+          break;
+        } catch (err) {
+          if (attempt === PART_MAX_RETRY - 1) throw err;
+          uploadedBytes[idx] = 0;
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        }
+      }
+      results.push({ part_number: p.part_number, etag: etag! });
+    }
+  };
+
+  await Promise.all(Array.from({ length: PART_CONCURRENCY }, worker));
+
+  try {
+    const done = await completeMultipartUpload({
+      job_id: init.job_id,
+      key: init.key,
+      upload_id: init.upload_id,
+      parts: results,
+    });
+    return {
+      filename: file.name,
+      oss_uri: done.oss_uri,
+      public_url: done.public_url,
+      key: init.key,
+      drama_index,
+      episode_index,
+    };
+  } catch (err) {
+    await abortMultipartUpload(init.key, init.upload_id).catch(() => {});
+    throw err;
+  }
+}
+
+async function uploadOneFileSimple(
+  file: File,
+  presigned_url: string,
+  drama_index: number,
+  episode_index: number,
+  setProgress: React.Dispatch<React.SetStateAction<Record<string, number>>>
+) {
+  await axios.put(presigned_url, file, {
+    headers: { "Content-Type": file.type || "video/mp4" },
+    onUploadProgress: (event) => {
+      if (event.total) {
+        setProgress((prev) => ({
+          ...prev,
+          [`${drama_index}-${episode_index}`]: Math.round(
+            (event.loaded / event.total!) * 100
+          ),
+        }));
+      }
+    },
+  });
+}
 
 const TARGET_LANGS = [
   { value: "zh", label: "中文" },
@@ -268,45 +386,82 @@ export function SubtitleErasePage() {
         d.files.map((f, fi) => ({ ...f, drama_index: di, episode_index: fi }))
       );
 
-      const upload = await requestSubtitleEraseUploadUrls({
-        files: allFiles.map((f) => ({
-          filename: f.filename,
-          content_type: f.file.type || "video/mp4",
-        })),
+      const job_id = crypto.randomUUID();
+
+      const smallIndices: number[] = [];
+      const multipartIndices: number[] = [];
+      allFiles.forEach((f, i) => {
+        if (f.file.size >= MULTIPART_THRESHOLD) {
+          multipartIndices.push(i);
+        } else {
+          smallIndices.push(i);
+        }
       });
 
-      await Promise.all(
-        upload.entries.map((entry: SubtitleEraseUploadEntry, index: number) =>
-          axios.put(entry.presigned_url, allFiles[index].file, {
-            headers: { "Content-Type": allFiles[index].file.type || "video/mp4" },
-            onUploadProgress: (event) => {
-              if (event.total) {
-                setProgress((prev) => ({
-                  ...prev,
-                  [`${allFiles[index].drama_index}-${allFiles[index].episode_index}`]: Math.round(
-                    (event.loaded / event.total!) * 100
-                  ),
-                }));
-              }
-            },
+      const results: UploadedFileResult[] = new Array(allFiles.length);
+
+      if (smallIndices.length > 0) {
+        const smallResp = await requestSubtitleEraseUploadUrls({
+          files: smallIndices.map((i) => ({
+            filename: allFiles[i].filename,
+            content_type: allFiles[i].file.type || "video/mp4",
+          })),
+          job_id,
+        });
+        await Promise.all(
+          smallResp.entries.map((entry, idx) => {
+            const i = smallIndices[idx];
+            const f = allFiles[i];
+            return uploadOneFileSimple(
+              f.file,
+              entry.presigned_url,
+              f.drama_index,
+              f.episode_index,
+              setProgress
+            ).then(() => {
+              results[i] = {
+                filename: f.filename,
+                oss_uri: entry.oss_uri,
+                public_url: entry.public_url,
+                key: entry.key,
+                drama_index: f.drama_index,
+                episode_index: f.episode_index,
+              };
+            });
           })
-        )
-      );
+        );
+      }
 
-      const items = upload.entries.map((entry, index) => {
-        const f = allFiles[index];
-        return {
-          filename: f.filename,
-          oss_uri: entry.oss_uri,
-          public_url: entry.public_url,
-          key: entry.key,
-          drama_index: f.drama_index,
-          episode_index: f.episode_index,
-        };
-      });
+      if (multipartIndices.length > 0) {
+        const multipartResults = await Promise.all(
+          multipartIndices.map((i) => {
+            const f = allFiles[i];
+            return uploadOneFileMultipart(
+              f.file,
+              job_id,
+              i,
+              f.drama_index,
+              f.episode_index,
+              setProgress
+            );
+          })
+        );
+        multipartIndices.forEach((i, idx) => {
+          results[i] = multipartResults[idx];
+        });
+      }
+
+      const items = results.map((r) => ({
+        filename: r.filename,
+        oss_uri: r.oss_uri,
+        public_url: r.public_url,
+        key: r.key,
+        drama_index: r.drama_index,
+        episode_index: r.episode_index,
+      }));
 
       const job = await createSubtitleEraseJob({
-        job_id: upload.job_id,
+        job_id,
         title: title.trim(),
         detext_mode: detextMode,
         translate_mode: translateMode,
