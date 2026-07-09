@@ -91,6 +91,68 @@ def _escape_ass_text(text: str) -> str:
     )
 
 
+def _is_wide_char(ch: str) -> bool:
+    """CJK 及全角字符占 1 个 em 宽度,其余按 0.5 em 估算。"""
+    code = ord(ch)
+    if code < 0x1100:
+        return False
+    return (
+        code <= 0x115F
+        or 0x2E80 <= code <= 0xA4CF
+        or 0xAC00 <= code <= 0xD7A3
+        or 0xF900 <= code <= 0xFAFF
+        or 0xFE30 <= code <= 0xFE4F
+        or 0xFF00 <= code <= 0xFF60
+        or 0xFFE0 <= code <= 0xFFE6
+        or 0x20000 <= code <= 0x2FFFD
+    )
+
+
+def _estimate_text_width(text: str, font_size: int) -> float:
+    """估算文本渲染宽度(像素)。CJK/全角=1.0em,其他=0.5em。"""
+    return sum(font_size if _is_wide_char(ch) else font_size * 0.5 for ch in text)
+
+
+def _wrap_text_to_lines(
+    text: str,
+    max_width: float,
+    font_size: int,
+    max_lines: int,
+) -> list[str]:
+    """按估算宽度切分文本为多行,最多 max_lines 行。
+
+    保留原始 \\n 作为用户主动换行;在每段内按 max_width 估算切分。
+    超过 max_lines 时,保留前 max_lines 行,末行追加 "…"(若超宽先截到能放下)。
+    """
+    segments = text.split("\n")
+    wrapped: list[str] = []
+    for seg in segments:
+        if not seg:
+            wrapped.append("")
+            continue
+        cur = ""
+        cur_w = 0.0
+        for ch in seg:
+            ch_w = font_size if _is_wide_char(ch) else font_size * 0.5
+            if cur and cur_w + ch_w > max_width:
+                wrapped.append(cur)
+                cur = ch
+                cur_w = ch_w
+            else:
+                cur += ch
+                cur_w += ch_w
+        if cur:
+            wrapped.append(cur)
+
+    if len(wrapped) > max_lines:
+        last = wrapped[max_lines - 1]
+        while last and _estimate_text_width(last + "…", font_size) > max_width:
+            last = last[:-1]
+        wrapped = wrapped[: max_lines - 1] + [last + "…"]
+
+    return wrapped
+
+
 def _safe_area_height(video_h: int) -> int:
     return max(120, video_h // 10)
 
@@ -108,6 +170,7 @@ def srt_to_ass(
     pos_x_ratio: float | None = None,
     pos_y_ratio: float | None = None,
     text_width_ratio: float = 0.9,
+    max_lines: int = 3,
 ) -> str:
     """把 SRT entries 转成 ASS 字幕。
 
@@ -122,6 +185,8 @@ def srt_to_ass(
     - font_color_opacity: 0-1
     - pos_x_ratio / pos_y_ratio: 0-1，相对视频尺寸的字幕位置
     - text_width_ratio: 0.1-1，字幕文本宽度占比（仅影响 ASS Style MarginL/MarginR）
+    - max_lines: 单条字幕最多显示行数，超出则末行追加 "…" 截断。
+      \\an2 锚点为底部中点，多行向上延伸；默认配置下不超出视频边界。
     """
 
     if font_size_pct is not None:
@@ -146,6 +211,9 @@ def srt_to_ass(
 
     # text_width_ratio → ASS Style MarginL/MarginR
     margin_lr = max(20, int(video_w * (1.0 - text_width_ratio) / 2))
+
+    # 可用文本宽度：视频宽度 * text_width_ratio，留 outline 边距保险
+    max_text_width = max(font_size * 2, video_w * text_width_ratio - outline * 2)
 
     # hex "#FFFFFF" → ASS "&H00BBGGRR"
     ass_color = _hex_to_ass_color(font_color, font_color_opacity)
@@ -172,10 +240,14 @@ def srt_to_ass(
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     )
     for e in entries:
-        text = _escape_ass_text(e.text)
+        wrapped_lines = _wrap_text_to_lines(
+            e.text, max_text_width, font_size, max_lines
+        )
+        # 每行单独 escape，再用字面 \N 连接（\N 本身不被 escape）
+        escaped = "\\N".join(_escape_ass_text(ln) for ln in wrapped_lines)
         lines.append(
             f"Dialogue: 0,{_to_ass_time(e.start_ms)},{_to_ass_time(e.end_ms)},"
-            f"Default,,0,0,0,,{{\\an2\\pos({pos_x},{pos_y})}}{text}"
+            f"Default,,0,0,0,,{{\\an2\\pos({pos_x},{pos_y})}}{escaped}"
         )
     return "\n".join(lines) + "\n"
 
