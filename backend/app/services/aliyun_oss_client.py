@@ -207,13 +207,19 @@ class AliyunOSSClient:
     def complete_multipart(
         self, key: str, upload_id: str, parts: list[dict]
     ) -> tuple[str, str]:
-        """完成分片上传。parts: [{part_number, etag}](etag 保留双引号原样回传)。
+        """完成分片上传。parts: [{part_number, etag}]。
 
-        返回 (public_url, oss_uri)。
+        etag 可以带也可以不带外层双引号,这里统一去掉:
+        OSS PUT part 响应的 ETag header 是带引号的 `"ABC..."`,
+        前端原样回传;oss2 序列化 CompleteMultipartUpload 请求时
+        会自己再加引号,这里不剥就会变成 `""ABC...""` 导致 InvalidPart。
         """
         bucket = self._fresh_bucket()
         infos = [
-            oss2.models.PartInfo(p["part_number"], p["etag"]) for p in parts
+            oss2.models.PartInfo(
+                p["part_number"], p["etag"].strip('"') if p.get("etag") else p.get("etag")
+            )
+            for p in parts
         ]
         bucket.complete_multipart_upload(key, upload_id, infos)
         return self.public_url(key), self.oss_uri(key)
