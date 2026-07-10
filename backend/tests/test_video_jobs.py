@@ -138,6 +138,7 @@ async def test_video_job_completes_via_mocked_las_and_tos(tmp_path, monkeypatch)
     class FakeSubmit:
         def __init__(self, task_id):
             self.task_id = task_id
+            self.raw = {"metadata": {"task_id": task_id, "task_status": "PENDING"}}
 
     class FakePoll:
         def __init__(self, status, error=None):
@@ -232,6 +233,7 @@ async def test_video_job_marks_failed_on_las_error(tmp_path, monkeypatch):
     class FakeSubmit:
         def __init__(self, task_id):
             self.task_id = task_id
+            self.raw = {"metadata": {"task_id": task_id, "task_status": "PENDING"}}
 
     class FakePoll:
         def __init__(self):
@@ -292,7 +294,89 @@ async def test_video_job_marks_failed_on_las_error(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_migrations_idempotent_preserves_existing_data(tmp_path, monkeypatch):
+async def test_video_job_marks_failed_on_las_business_failure(tmp_path, monkeypatch):
+    """LAS metadata.task_status=COMPLETED but data.status=failed -> job failed with failed_video_urls."""
+
+    base_env(monkeypatch, tmp_path)
+    app = load_create_app()()
+
+    class FakeSubmit:
+        def __init__(self, task_id):
+            self.task_id = task_id
+            self.raw = {"metadata": {"task_id": task_id, "task_status": "PENDING"}}
+
+    class FakePoll:
+        def __init__(self, status, data=None):
+            self.task_status = status
+            self.business_code = "0"
+            self.error_msg = "Task processed successfully"
+            self.data = data
+            self.raw = {"metadata": {"task_status": status}, "data": data or {}}
+
+    poll_calls = {"n": 0}
+
+    async def fake_submit(self, **kwargs):
+        return FakeSubmit("task-biz-fail-1")
+
+    async def fake_poll(self, task_id):
+        poll_calls["n"] += 1
+        if poll_calls["n"] >= 2:
+            return FakePoll(
+                "COMPLETED",
+                data={
+                    "status": "failed",
+                    "failed_video_urls": [
+                        "tos://test-short-drama/uploads/x/y.mp4"
+                    ],
+                    "generated_script_count": 0,
+                    "input_episode_count": 1,
+                },
+            )
+        return FakePoll("RUNNING")
+
+    monkeypatch.setattr("app.services.video_script_runner.LASClient.submit", fake_submit)
+    monkeypatch.setattr("app.services.video_script_runner.LASClient.poll", fake_poll)
+    monkeypatch.setattr(
+        "app.services.video_script_runner.LASClient.__init__",
+        lambda self, settings: setattr(self, "_settings", settings) or None,
+    )
+
+    import app.services.video_script_runner as runner_mod
+
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr(runner_mod.asyncio, "sleep", _fast_sleep)
+
+    headers = {"X-Access-Passphrase": "test-pass"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        upload = (
+            await client.post(
+                "/api/video-jobs/upload-url",
+                json={"files": [{"filename": "a.mp4", "content_type": "video/mp4"}]},
+                headers=headers,
+            )
+        ).json()
+        await client.post(
+            "/api/video-jobs",
+            json={
+                "job_id": upload["job_id"],
+                "title": "BizFail",
+                "video_urls": [upload["entries"][0]["tos_uri"]],
+                "prompt_template_id": "default-las",
+            },
+            headers=headers,
+        )
+        for _ in range(50):
+            detail = await client.get(f"/api/video-jobs/{upload['job_id']}")
+            if detail.json()["status"] in ("completed", "failed"):
+                break
+            import asyncio
+            await asyncio.sleep(0.05)
+        body = detail.json()
+        assert body["status"] == "failed"
+        assert "LAS 业务失败" in body["error_message"]
+        assert "tos://test-short-drama/uploads/x/y.mp4" in body["error_message"]
     """Re-running create_app must keep existing scripts/cleaned rows untouched and seed prompt only once."""
     base_env(monkeypatch, tmp_path)
     app = load_create_app()()

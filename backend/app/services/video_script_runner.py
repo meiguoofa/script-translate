@@ -119,6 +119,13 @@ async def run_video_script_job(db: Database, settings: Settings, job_id: str) ->
         )
         return
 
+    logger.info(
+        "LAS submit ok: job_id=%s task_id=%s raw=%s",
+        job_id,
+        submit.task_id,
+        json.dumps(submit.raw, ensure_ascii=False)[:1000],
+    )
+
     await _set_status(
         db,
         job_id,
@@ -161,7 +168,42 @@ async def run_video_script_job(db: Database, settings: Settings, job_id: str) ->
 
         if status_upper in TERMINAL_STATUSES:
             if status_upper == "COMPLETED":
+                biz_data = poll.data if isinstance(poll.data, dict) else {}
+                biz_status = str(biz_data.get("status") or "").lower()
+                logger.info(
+                    "LAS task %s COMPLETED: business_code=%s data.status=%s "
+                    "generated_script_count=%s input_episode_count=%s failed_video_urls=%s",
+                    submit.task_id,
+                    poll.business_code,
+                    biz_status,
+                    biz_data.get("generated_script_count"),
+                    biz_data.get("input_episode_count"),
+                    biz_data.get("failed_video_urls"),
+                )
+                if biz_status == "failed":
+                    await _set_status(
+                        db,
+                        job_id,
+                        status="failed",
+                        error_message=(
+                            f"LAS 业务失败: data.status=failed, "
+                            f"failed_video_urls={biz_data.get('failed_video_urls')}, "
+                            f"generated_script_count={biz_data.get('generated_script_count')}, "
+                            f"input_episode_count={biz_data.get('input_episode_count')}, "
+                            f"raw={json.dumps(poll.raw, ensure_ascii=False)[:1000]}"
+                        ),
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    return
                 break
+            logger.info(
+                "LAS task %s 终态非 COMPLETED: status=%s business_code=%s error_msg=%s raw=%s",
+                submit.task_id,
+                status_upper,
+                poll.business_code,
+                poll.error_msg,
+                json.dumps(poll.raw, ensure_ascii=False)[:1000],
+            )
             await _set_status(
                 db,
                 job_id,
@@ -182,7 +224,9 @@ async def run_video_script_job(db: Database, settings: Settings, job_id: str) ->
         text_objects = filter_text_objects(all_objects)
         if not text_objects:
             raise RuntimeError(
-                f"在 {snapshot['output_tos_path']} 下未找到 .md/.txt 剧本文件，all_objects={[o['Key'] for o in all_objects]}"
+                f"在 {snapshot['output_tos_path']} 下未找到 .md/.txt 剧本文件，"
+                f"all_objects={[o['Key'] for o in all_objects]}, "
+                f"poll.raw={json.dumps(poll.raw, ensure_ascii=False)[:1000]}"
             )
         parts: list[str] = []
         for obj in text_objects:
