@@ -30,6 +30,7 @@ import { toast } from "@/components/ui/sonner";
 import { MultiFolderDropzone, type Drama } from "@/components/MultiFolderDropzone";
 import { PassphraseGate } from "@/components/PassphraseGate";
 import { getPassphrase } from "@/lib/passphrase";
+import { uuid } from "@/lib/uuid";
 
 const MULTIPART_THRESHOLD = 10 * 1024 * 1024; // <10MB 走单 PUT，≥10MB 走分片
 const PART_CONCURRENCY = 5; // 前端分片并发数
@@ -386,7 +387,7 @@ export function SubtitleErasePage() {
         d.files.map((f, fi) => ({ ...f, drama_index: di, episode_index: fi }))
       );
 
-      const job_id = crypto.randomUUID();
+      const job_id = uuid();
 
       const smallIndices: number[] = [];
       const multipartIndices: number[] = [];
