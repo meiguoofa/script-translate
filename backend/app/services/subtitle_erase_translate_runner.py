@@ -39,30 +39,42 @@ def _strip_ext(name: str) -> str:
     return re.sub(r"\.[^.]+$", "", name) or name
 
 
-# items_json 中需要 reset 的中间字段
-RETRY_FIELDS = (
-    "caption_job_id",
-    "caption_status",
-    "source_srt_oss_uri",
-    "cleaned_srt_oss_uri",
-    "translated_srt_oss_uri",
-    "detext_job_id",
-    "detext_status",
-    "clean_video_oss_uri",
-    "translation_job_id",
-    "translation_status",
-    "output_video_oss_uri",
-    "output_public_url",
-    "output_video_tos_uri",
-    "output_video_tos_public_url",
-    "output_video_bj_tos_uri",
-    "output_video_bj_tos_public_url",
-    "bj_fetch_error",
-    "mps_job_id",
-    "burn_ass_oss_uri",
-    "error",
+# 跨语言共享产物(擦除 + 字幕提取,只做一次)。仅在 force_redetext/force_recaption 时重置。
+SHARED_FIELDS = (
+    "caption_job_id", "caption_status",
+    "source_srt_oss_uri", "cleaned_srt_oss_uri",
+    "detext_job_id", "detext_status",
+    "clean_video_oss_uri", "clean_video_public_url",
     "warning",
 )
+# 每语言独立产物(翻译 + 烧录)。retry 单语言失败项时重置。
+TRANSLATION_FIELDS = (
+    "translated_srt_oss_uri",
+    "output_video_oss_uri", "output_public_url",
+    "translation_job_id", "translation_status",
+    "mps_job_id", "burn_ass_oss_uri",
+    "output_video_tos_uri", "output_video_tos_public_url",
+    "output_video_bj_tos_uri", "output_video_bj_tos_public_url",
+    "bj_fetch_error",
+)
+# 兼容旧字段名(迁移期:旧 items_json 没迁完时,仍可能存这些字段)
+LEGACY_FLAT_FIELDS = TRANSLATION_FIELDS + SHARED_FIELDS
+# 兼容旧调用方(如 retry 端点的 for f in RETRY_FIELDS)
+RETRY_FIELDS = LEGACY_FLAT_FIELDS + ("error",)
+
+
+def _parse_target_langs(target_langs_json: str | None, fallback_target_lang: str | None) -> list[str]:
+    """从 target_langs_json 解析,失败或为空时回退到旧 target_lang 单字段。"""
+    if target_langs_json:
+        try:
+            langs = json.loads(target_langs_json)
+            if isinstance(langs, list) and langs:
+                return [str(x) for x in langs if str(x).strip()]
+        except json.JSONDecodeError:
+            logger.warning("非法 target_langs_json: %s, 回退到 target_lang", target_langs_json)
+    if fallback_target_lang:
+        return [fallback_target_lang]
+    return ["zh"]  # 兜底,不应触达(创建时校验过)
 
 
 async def _load_snapshot(db: Database, job_id: str) -> dict | None:
@@ -79,6 +91,7 @@ async def _load_snapshot(db: Database, job_id: str) -> dict | None:
             "placement_mode": job.placement_mode,
             "source_lang": job.source_lang,
             "target_lang": job.target_lang,
+            "target_langs": _parse_target_langs(job.target_langs_json, job.target_lang),
             "model_provider": job.model_provider,
             "model_name": job.model_name,
             "qps": job.qps,
@@ -349,7 +362,7 @@ async def _run_episode_impl(
     items: list[dict],
     index: int,
 ) -> None:
-    """单集流水线实际实现:提取 -> 擦除 -> 清洗 -> 翻译 -> 烧录 -> 输出。"""
+    """单集流水线: 擦除+字幕提取(跨语言共享,只做一次) -> 每语言翻译+烧录。支持产物复用。"""
 
     item = items[index]
     drama_index = item.get("drama_index", 0)
@@ -364,10 +377,12 @@ async def _run_episode_impl(
         output_prefix_key = output_prefix_uri
 
     input_bucket, input_key = AliyunOSSClient.parse_oss_uri(input_oss_uri)
-    # IMS 要求 OSS URI 形如 oss://bucket/key
     input_oss_for_ims = input_oss_uri
 
-    target_lang = snapshot["target_lang"]
+    target_langs: list[str] = snapshot["target_langs"]
+    force_redetext = bool(snapshot.get("force_redetext", False))
+    force_recaption = bool(snapshot.get("force_recaption", False))
+
     source_srt_oss = (
         f"oss://{oss.bucket_name}/"
         f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'source.srt')}"
@@ -376,181 +391,278 @@ async def _run_episode_impl(
         f"oss://{oss.bucket_name}/"
         f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'clean.srt')}"
     )
-    translated_srt_name = f"{target_lang}.srt"
-    translated_srt_oss = (
-        f"oss://{oss.bucket_name}/"
-        f"{_output_key(output_prefix_key, drama_index, episode_index, filename, translated_srt_name)}"
-    )
     clean_mp4_oss = (
         f"oss://{oss.bucket_name}/"
         f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'clean.mp4')}"
     )
-    output_mp4_oss = (
-        f"oss://{oss.bucket_name}/"
-        f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'output.mp4')}"
-    )
+
+    # 确保 item.translations 存在(迁移后/新建时已有,这里兜底)
+    if not isinstance(item.get("translations"), dict):
+        item["translations"] = {}
 
     name_prefix = f"{job_id[:8]}-d{drama_index:02d}-e{episode_index:02d}"
 
-    # ===== 阶段 1：并行提交字幕提取 + 字幕擦除 =====
-    item["stage"] = "extracting"
-    item["status"] = "running"
-    item["error"] = None
-    await _persist_items(db, job_id, items)
+    # ===== 阶段 1: 并行提交字幕提取 + 字幕擦除(跨语言共享,只做一次)=====
+    has_clean_video = bool(item.get("clean_video_oss_uri")) and not force_redetext
+    has_cleaned_srt = bool(item.get("cleaned_srt_oss_uri")) and not force_recaption
 
-    roi = _parse_roi(snapshot.get("caption_roi"))
-    limit_region = _parse_limit_region(snapshot.get("detext_limit_region"))
-    detext_model_id = "algo-video-detext-new" if snapshot["detext_mode"] == "advanced" else None
-
-    try:
-        caption_submit, detext_submit = await asyncio.gather(
-            ims.submit_caption_extraction(
-                input_oss_uri=input_oss_for_ims,
-                output_srt_oss_uri=source_srt_oss,
-                name=f"{name_prefix}-cap",
-                fps=snapshot["caption_fps"],
-                lang=snapshot["caption_lang"],
-                track=snapshot["caption_track"],
-                roi=roi,
-                sep=snapshot["caption_sep"],
-            ),
-            ims.submit_video_detext(
-                input_oss_uri=input_oss_for_ims,
-                output_mp4_oss_uri=clean_mp4_oss,
-                name=f"{name_prefix}-detext",
-                model_id=detext_model_id,
-                limit_region=limit_region,
-            ),
+    if has_clean_video and has_cleaned_srt:
+        logger.info(
+            "skip extract+detext %s/%d, reuse clean_video=%s cleaned_srt=%s",
+            job_id, index, item["clean_video_oss_uri"], item["cleaned_srt_oss_uri"],
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("submit %s/%d failed", job_id, index)
-        item["status"] = "failed"
-        item["error"] = f"提交失败: {exc}"
+    else:
+        item["stage"] = "extracting"
+        item["status"] = "running"
+        item["error"] = None
         await _persist_items(db, job_id, items)
-        return
 
-    item["caption_job_id"] = caption_submit.job_id
-    item["caption_status"] = "PROCESSING"
-    item["detext_job_id"] = detext_submit.job_id
-    item["detext_status"] = "PROCESSING"
-    await _persist_items(db, job_id, items)
+        roi = _parse_roi(snapshot.get("caption_roi"))
+        limit_region = _parse_limit_region(snapshot.get("detext_limit_region"))
+        detext_model_id = "algo-video-detext-new" if snapshot["detext_mode"] == "advanced" else None
 
-    # ===== 阶段 2：并行轮询两个 IProduction 任务 =====
-    try:
-        caption_final, detext_final = await asyncio.gather(
-            ims.wait_for_iproduction_job(
-                caption_submit.job_id,
-                poll_interval_seconds=settings.ims_poll_interval_seconds,
-                timeout_seconds=settings.ims_poll_timeout_seconds,
-            ),
-            ims.wait_for_iproduction_job(
-                detext_submit.job_id,
-                poll_interval_seconds=settings.ims_poll_interval_seconds,
-                timeout_seconds=settings.ims_poll_timeout_seconds,
-            ),
+        try:
+            caption_submit, detext_submit = await asyncio.gather(
+                ims.submit_caption_extraction(
+                    input_oss_uri=input_oss_for_ims,
+                    output_srt_oss_uri=source_srt_oss,
+                    name=f"{name_prefix}-cap",
+                    fps=snapshot["caption_fps"],
+                    lang=snapshot["caption_lang"],
+                    track=snapshot["caption_track"],
+                    roi=roi,
+                    sep=snapshot["caption_sep"],
+                ),
+                ims.submit_video_detext(
+                    input_oss_uri=input_oss_for_ims,
+                    output_mp4_oss_uri=clean_mp4_oss,
+                    name=f"{name_prefix}-detext",
+                    model_id=detext_model_id,
+                    limit_region=limit_region,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("submit %s/%d failed", job_id, index)
+            item["status"] = "failed"
+            item["error"] = f"提交失败: {exc}"
+            await _persist_items(db, job_id, items)
+            return
+
+        item["caption_job_id"] = caption_submit.job_id
+        item["caption_status"] = "PROCESSING"
+        item["detext_job_id"] = detext_submit.job_id
+        item["detext_status"] = "PROCESSING"
+        await _persist_items(db, job_id, items)
+
+        # ===== 阶段 2: 并行轮询两个 IProduction 任务 =====
+        try:
+            caption_final, detext_final = await asyncio.gather(
+                ims.wait_for_iproduction_job(
+                    caption_submit.job_id,
+                    poll_interval_seconds=settings.ims_poll_interval_seconds,
+                    timeout_seconds=settings.ims_poll_timeout_seconds,
+                ),
+                ims.wait_for_iproduction_job(
+                    detext_submit.job_id,
+                    poll_interval_seconds=settings.ims_poll_interval_seconds,
+                    timeout_seconds=settings.ims_poll_timeout_seconds,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("iproduction poll %s/%d failed", job_id, index)
+            item["status"] = "failed"
+            item["error"] = f"提取/擦除任务失败: {exc}"
+            await _persist_items(db, job_id, items)
+            return
+
+        item["caption_status"] = caption_final.status
+        item["detext_status"] = detext_final.status
+        item["source_srt_oss_uri"] = source_srt_oss
+        item["clean_video_oss_uri"] = clean_mp4_oss
+        item["clean_video_public_url"] = oss.public_url(
+            AliyunOSSClient.parse_oss_uri(clean_mp4_oss)[1]
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("iproduction poll %s/%d failed", job_id, index)
-        item["status"] = "failed"
-        item["error"] = f"提取/擦除任务失败: {exc}"
         await _persist_items(db, job_id, items)
-        return
 
-    item["caption_status"] = caption_final.status
-    item["detext_status"] = detext_final.status
-    item["source_srt_oss_uri"] = source_srt_oss
-    item["clean_video_oss_uri"] = clean_mp4_oss
-    await _persist_items(db, job_id, items)
-
-    # ===== 阶段 3：下载源 SRT → 清洗 → 上传 clean SRT =====
-    item["stage"] = "cleaning"
-    await _persist_items(db, job_id, items)
-
-    try:
-        _, source_srt_key = AliyunOSSClient.parse_oss_uri(source_srt_oss)
-        source_srt_text = await asyncio.to_thread(oss.get_object_text, source_srt_key)
-        cleaned_srt_text = clean_srt(source_srt_text)
-        _, cleaned_srt_key = AliyunOSSClient.parse_oss_uri(cleaned_srt_oss)
-        await asyncio.to_thread(oss.put_object_text, cleaned_srt_key, cleaned_srt_text)
-        item["cleaned_srt_oss_uri"] = cleaned_srt_oss
+        # ===== 阶段 3: 下载源 SRT -> 清洗 -> 上传 clean SRT =====
+        item["stage"] = "cleaning"
         await _persist_items(db, job_id, items)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("srt clean %s/%d failed", job_id, index)
-        item["status"] = "failed"
-        item["error"] = f"SRT 清洗失败: {exc}"
-        await _persist_items(db, job_id, items)
-        return
 
-    # 空 SRT 检测：字幕提取结果为空，跳过翻译和烧录，直接以擦除视频作为输出
+        try:
+            _, source_srt_key = AliyunOSSClient.parse_oss_uri(source_srt_oss)
+            source_srt_text = await asyncio.to_thread(oss.get_object_text, source_srt_key)
+            cleaned_srt_text = clean_srt(source_srt_text)
+            _, cleaned_srt_key = AliyunOSSClient.parse_oss_uri(cleaned_srt_oss)
+            await asyncio.to_thread(oss.put_object_text, cleaned_srt_key, cleaned_srt_text)
+            item["cleaned_srt_oss_uri"] = cleaned_srt_oss
+            await _persist_items(db, job_id, items)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("srt clean %s/%d failed", job_id, index)
+            item["status"] = "failed"
+            item["error"] = f"SRT 清洗失败: {exc}"
+            await _persist_items(db, job_id, items)
+            return
+
+    # 空 SRT 检测: 跨语言共享,所有语言直接以擦除视频作为输出
+    # 重新读 cleaned_srt_text(可能从复用路径来,需要从 OSS 拉取)
+    _, cleaned_srt_key = AliyunOSSClient.parse_oss_uri(item["cleaned_srt_oss_uri"])
+    cleaned_srt_text = await asyncio.to_thread(oss.get_object_text, cleaned_srt_key)
+
     if not parse_srt(cleaned_srt_text):
         logger.warning("srt empty %s/%d, skipping translate+burn", job_id, index)
-        item["warning"] = "字幕提取为空，已跳过翻译和烧录（输出为无字幕的擦除视频）"
-        item["output_video_oss_uri"] = item.get("clean_video_oss_uri")
-        item["output_public_url"] = item.get("clean_video_public_url")
+        item["warning"] = "字幕提取为空,已跳过翻译和烧录(输出为无字幕的擦除视频)"
+        for lang in target_langs:
+            t = item["translations"].setdefault(lang, {})
+            t["output_video_oss_uri"] = item.get("clean_video_oss_uri")
+            t["output_public_url"] = item.get("clean_video_public_url")
+            t["stage"] = "done"
+            t["status"] = "succeeded"
+            t["error"] = None
         item["stage"] = "done"
         item["status"] = "succeeded"
+        item["error"] = None
         await _persist_items(db, job_id, items)
         return
 
-    # ===== 阶段 4：翻译 =====
+    # ===== 阶段 4-5: 每语言循环(翻译 + 烧录)=====
     item["stage"] = "translating"
+    item["status"] = "running"
     await _persist_items(db, job_id, items)
+
+    for lang in target_langs:
+        await _run_translation_for_lang(
+            db, job_id, ims, oss, registry, settings, snapshot, items, index,
+            lang, cleaned_srt_oss, cleaned_srt_text, clean_mp4_oss,
+            output_prefix_key, drama_index, episode_index, filename, name_prefix,
+        )
+
+    # ===== 汇总 item 级状态 =====
+    statuses = [t.get("status") for t in item["translations"].values()]
+    if statuses and all(s == "succeeded" for s in statuses):
+        item["status"] = "succeeded"
+        item["stage"] = "done"
+        item["error"] = None
+    elif any(s == "succeeded" for s in statuses):
+        item["status"] = "partial"
+        item["stage"] = "done"
+        errors = [t.get("error") for t in item["translations"].values() if t.get("status") == "failed"]
+        item["error"] = "; ".join(e for e in errors if e)[:500]
+    else:
+        item["status"] = "failed"
+        item["stage"] = "done"
+        errors = [t.get("error") for t in item["translations"].values() if t.get("status") == "failed"]
+        item["error"] = "; ".join(e for e in errors if e)[:500]
+    await _persist_items(db, job_id, items)
+
+
+async def _run_translation_for_lang(
+    db: Database,
+    job_id: str,
+    ims: IMSClient,
+    oss: AliyunOSSClient,
+    registry: ProviderRegistry | None,
+    settings: Settings,
+    snapshot: dict,
+    items: list[dict],
+    index: int,
+    lang: str,
+    cleaned_srt_oss: str,
+    cleaned_srt_text: str,
+    clean_mp4_oss: str,
+    output_prefix_key: str,
+    drama_index: int,
+    episode_index: int,
+    filename: str,
+    name_prefix: str,
+) -> None:
+    """单语言的翻译 + 烧录。产物写入 item["translations"][lang]。失败标 failed,不抛异常。"""
+
+    item = items[index]
+    t = item["translations"].setdefault(lang, {})
+    t["stage"] = "translating"
+    t["status"] = "running"
+    t["error"] = None
+    await _persist_items(db, job_id, items)
+
+    translated_srt_name = f"{lang}.srt"
+    translated_srt_oss = (
+        f"oss://{oss.bucket_name}/"
+        f"{_output_key(output_prefix_key, drama_index, episode_index, filename, translated_srt_name)}"
+    )
+    # output 路径加 lang 后缀,避免多语言互相覆盖
+    output_mp4_oss = (
+        f"oss://{oss.bucket_name}/"
+        f"{_output_key(output_prefix_key, drama_index, episode_index, filename, f'output.{lang}.mp4')}"
+    )
 
     srt_for_burn_oss = cleaned_srt_oss
     srt_for_burn_text = cleaned_srt_text
     source_lang_for_ims = snapshot.get("source_lang") or "auto"
-    # target_lang already defined above
 
+    # === 翻译(LLM 模式才单独翻译;aliyun 模式由烧录 API 一体处理)===
     if snapshot["translate_mode"] == "llm":
-        try:
-            if registry is None:
-                raise RuntimeError("翻译注册表未初始化")
-            if not (snapshot.get("model_provider") and snapshot.get("model_name")):
-                raise RuntimeError("LLM 翻译模式缺少 model_provider / model_name")
+        # 复用已翻译的 SRT(非 failed 状态)
+        if t.get("translated_srt_oss_uri") and t.get("status") != "failed":
+            logger.info("skip translate %s/%d/%s, reuse", job_id, index, lang)
+            srt_for_burn_oss = t["translated_srt_oss_uri"]
+            source_lang_for_ims = lang
+        else:
+            try:
+                if registry is None:
+                    raise RuntimeError("翻译注册表未初始化")
+                if not (snapshot.get("model_provider") and snapshot.get("model_name")):
+                    raise RuntimeError("LLM 翻译模式缺少 model_provider / model_name")
 
-            translated_text = await translate_srt(
-                cleaned_srt_text,
-                registry=registry,
-                model_provider=snapshot["model_provider"],
-                model_name=snapshot["model_name"],
-                target_lang=target_lang,
-                batch_size=settings.batch_size,
-            )
-            _, translated_srt_key = AliyunOSSClient.parse_oss_uri(translated_srt_oss)
-            await asyncio.to_thread(oss.put_object_text, translated_srt_key, translated_text)
-            item["translated_srt_oss_uri"] = translated_srt_oss
-            srt_for_burn_oss = translated_srt_oss
-            srt_for_burn_text = translated_text
-            # LLM 已翻译好，让 IMS 只做烧录（SourceLang = TargetLang）
-            source_lang_for_ims = target_lang
-            await _persist_items(db, job_id, items)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("llm translate %s/%d failed", job_id, index)
-            item["status"] = "failed"
-            item["error"] = f"LLM 翻译失败: {exc}"
-            await _persist_items(db, job_id, items)
-            return
+                translated_text = await translate_srt(
+                    cleaned_srt_text,
+                    registry=registry,
+                    model_provider=snapshot["model_provider"],
+                    model_name=snapshot["model_name"],
+                    target_lang=lang,
+                    batch_size=settings.batch_size,
+                )
+                _, translated_srt_key = AliyunOSSClient.parse_oss_uri(translated_srt_oss)
+                await asyncio.to_thread(oss.put_object_text, translated_srt_key, translated_text)
+                t["translated_srt_oss_uri"] = translated_srt_oss
+                srt_for_burn_oss = translated_srt_oss
+                srt_for_burn_text = translated_text
+                source_lang_for_ims = lang
+                await _persist_items(db, job_id, items)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("llm translate %s/%d/%s failed", job_id, index, lang)
+                t["status"] = "failed"
+                t["stage"] = "done"
+                t["error"] = f"LLM 翻译失败: {exc}"
+                await _persist_items(db, job_id, items)
+                return
 
-    # ===== 阶段 5：烧录 =====
-    item["stage"] = "burning"
+    # === 烧录 ===
+    t["stage"] = "burning"
     await _persist_items(db, job_id, items)
 
+    # 复用已烧录产物(非 failed 状态)
+    if t.get("output_video_oss_uri") and t.get("status") != "failed":
+        logger.info("skip burn %s/%d/%s, reuse", job_id, index, lang)
+        t["stage"] = "done"
+        t["status"] = "succeeded"
+        await _persist_items(db, job_id, items)
+        return
+
     if snapshot["burn_mode"] == "local":
-        # 本地 ffmpeg 烧录 → 上传 TOS 新加坡 → 删本地临时文件
         try:
-            await _burn_local_and_upload_tos(
-                db, job_id, items, index, settings, snapshot,
+            await _burn_local_and_upload_tos_lang(
+                db, job_id, items, index, lang, settings, snapshot,
                 clean_mp4_oss, srt_for_burn_text,
                 drama_index, episode_index, filename, name_prefix,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("local burn %s/%d failed", job_id, index)
-            item["status"] = "failed"
-            item["error"] = f"本地烧录失败: {exc}"
+            logger.exception("local burn %s/%d/%s failed", job_id, index, lang)
+            t["status"] = "failed"
+            t["stage"] = "done"
+            t["error"] = f"本地烧录失败: {exc}"
             await _persist_items(db, job_id, items)
             return
     elif snapshot["burn_mode"] == "mps":
-        # MPS 烧录：clean.mp4 + ASS → SubmitJobs → output.mp4 直写 OSS
         try:
             video_w, video_h = await _probe_oss_video_size(oss, clean_mp4_oss)
             entries = parse_srt(srt_for_burn_text)
@@ -568,11 +680,11 @@ async def _run_episode_impl(
             )
             burn_ass_oss = (
                 f"oss://{oss.bucket_name}/"
-                f"{_output_key(output_prefix_key, drama_index, episode_index, filename, 'burn.ass')}"
+                f"{_output_key(output_prefix_key, drama_index, episode_index, filename, f'burn.{lang}.ass')}"
             )
             _, ass_key = AliyunOSSClient.parse_oss_uri(burn_ass_oss)
             await asyncio.to_thread(oss.put_object_text, ass_key, ass_text)
-            item["burn_ass_oss_uri"] = burn_ass_oss
+            t["burn_ass_oss_uri"] = burn_ass_oss
             await _persist_items(db, job_id, items)
 
             mps = MPSClient(settings)
@@ -580,51 +692,50 @@ async def _run_episode_impl(
                 input_oss_uri=clean_mp4_oss,
                 subtitle_oss_uri=burn_ass_oss,
                 output_oss_uri=output_mp4_oss,
-                title=f"{name_prefix}-mps-burn",
+                title=f"{name_prefix}-{lang}-mps-burn",
             )
-            item["mps_job_id"] = mps_submit.job_id
+            t["mps_job_id"] = mps_submit.job_id
             await _persist_items(db, job_id, items)
 
-            final = await mps.wait_for_job(
+            await mps.wait_for_job(
                 mps_submit.job_id,
                 poll_interval_seconds=settings.ims_poll_interval_seconds,
                 timeout_seconds=settings.ims_poll_timeout_seconds,
             )
-            item["translation_status"] = None  # MPS 无 IMS 翻译任务
-            item["output_video_oss_uri"] = output_mp4_oss
-            item["output_public_url"] = oss.public_url(
+            t["translation_status"] = None
+            t["output_video_oss_uri"] = output_mp4_oss
+            t["output_public_url"] = oss.public_url(
                 AliyunOSSClient.parse_oss_uri(output_mp4_oss)[1]
             )
-            # TOS 字段在 mps 模式下永远 None（输出直落 OSS）
-            item["output_video_tos_uri"] = None
-            item["output_video_tos_public_url"] = None
-            item["output_video_bj_tos_uri"] = None
-            item["output_video_bj_tos_public_url"] = None
-            item["bj_fetch_error"] = None
+            t["output_video_tos_uri"] = None
+            t["output_video_tos_public_url"] = None
+            t["output_video_bj_tos_uri"] = None
+            t["output_video_bj_tos_public_url"] = None
+            t["bj_fetch_error"] = None
         except Exception as exc:  # noqa: BLE001
-            logger.exception("mps burn %s/%d failed", job_id, index)
-            item["status"] = "failed"
-            item["error"] = f"MPS 烧录失败: {exc}"
+            logger.exception("mps burn %s/%d/%s failed", job_id, index, lang)
+            t["status"] = "failed"
+            t["stage"] = "done"
+            t["error"] = f"MPS 烧录失败: {exc}"
             await _persist_items(db, job_id, items)
             return
     elif snapshot["burn_mode"] == "aliyun":
-        # aliyun 烧录（IMS SubmitVideoTranslationJob）
         try:
             video_media_id = await ims.register_media(
                 input_url=clean_mp4_oss,
                 media_type="video",
-                title=f"{name_prefix}-video",
+                title=f"{name_prefix}-{lang}-video",
                 business_type="subtitles",
             )
 
             translation_submit = await ims.submit_video_translation(
-                title=f"{name_prefix}-trans",
+                title=f"{name_prefix}-{lang}-trans",
                 video_media_id=video_media_id,
                 subtitle_media_id=None,
                 subtitle_oss_url=srt_for_burn_oss,
                 output_mp4_oss=output_mp4_oss,
                 source_lang=source_lang_for_ims,
-                target_lang=target_lang,
+                target_lang=lang,
                 burn_font_size=snapshot["burn_font_size"],
                 burn_font_color=snapshot["burn_font_color"],
                 burn_font_color_opacity=snapshot["burn_font_color_opacity"],
@@ -632,36 +743,144 @@ async def _run_episode_impl(
                 burn_y=snapshot["burn_y"],
                 burn_text_width=snapshot["burn_text_width"],
             )
-            item["translation_job_id"] = translation_submit.job_id
-            item["translation_status"] = "Processing"
+            t["translation_job_id"] = translation_submit.job_id
+            t["translation_status"] = "Processing"
             await _persist_items(db, job_id, items)
 
-            final = await ims.wait_for_smart_handle_job(
+            await ims.wait_for_smart_handle_job(
                 translation_submit.job_id,
                 poll_interval_seconds=settings.ims_poll_interval_seconds,
                 timeout_seconds=settings.ims_poll_timeout_seconds,
             )
-            item["translation_status"] = final.state
-            item["output_video_oss_uri"] = output_mp4_oss
-            item["output_public_url"] = oss.public_url(
+            t["translation_status"] = "Finished"
+            t["output_video_oss_uri"] = output_mp4_oss
+            t["output_public_url"] = oss.public_url(
                 AliyunOSSClient.parse_oss_uri(output_mp4_oss)[1]
             )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("video translation %s/%d failed", job_id, index)
-            item["status"] = "failed"
-            item["error"] = f"烧录失败: {exc}"
+            logger.exception("video translation %s/%d/%s failed", job_id, index, lang)
+            t["status"] = "failed"
+            t["stage"] = "done"
+            t["error"] = f"烧录失败: {exc}"
             await _persist_items(db, job_id, items)
             return
     else:
-        item["status"] = "failed"
-        item["error"] = f"未知 burn_mode: {snapshot['burn_mode']}"
+        t["status"] = "failed"
+        t["stage"] = "done"
+        t["error"] = f"未知 burn_mode: {snapshot['burn_mode']}"
         await _persist_items(db, job_id, items)
         return
 
-    item["stage"] = "done"
-    item["status"] = "succeeded"
-    item["error"] = None
+    t["stage"] = "done"
+    t["status"] = "succeeded"
+    t["error"] = None
     await _persist_items(db, job_id, items)
+
+
+async def _burn_local_and_upload_tos_lang(
+    db: Database,
+    job_id: str,
+    items: list[dict],
+    index: int,
+    lang: str,
+    settings: Settings,
+    snapshot: dict,
+    clean_mp4_oss: str,
+    srt_for_burn_text: str,
+    drama_index: int,
+    episode_index: int,
+    filename: str,
+    name_prefix: str,
+) -> None:
+    """本地 ffmpeg 烧录 -> 上传 TOS 新加坡 -> 删本地临时文件。产物写入 item["translations"][lang]。"""
+
+    item = items[index]
+    t = item["translations"].setdefault(lang, {})
+    oss = AliyunOSSClient(settings)
+    try:
+        tos = TOSSingaporeClient(settings)
+    except RuntimeError as exc:
+        raise RuntimeError(f"TOS 新加坡客户端初始化失败: {exc}") from exc
+
+    try:
+        tos_bj = TOSFetchClient(settings)
+    except RuntimeError as exc:
+        logger.warning("TOS 北京 fetch client 初始化失败,跨区域复制禁用: %s", exc)
+        tos_bj = None
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix=f"burn-{job_id}-{index}-{lang}-"))
+    try:
+        input_video_tmp = tmp_dir / f"{index:02d}-{lang}-input.mp4"
+        ass_tmp = tmp_dir / f"{index:02d}-{lang}.ass"
+        output_video_tmp = tmp_dir / f"{index:02d}-{lang}-output.mp4"
+
+        _, clean_mp4_key = AliyunOSSClient.parse_oss_uri(clean_mp4_oss)
+        await asyncio.to_thread(oss.download_object_to_file, clean_mp4_key, str(input_video_tmp))
+
+        video_w, video_h = await asyncio.to_thread(probe_video_size, str(input_video_tmp))
+
+        entries = parse_srt(srt_for_burn_text)
+        ass_text = srt_to_ass(
+            entries,
+            video_w=video_w,
+            video_h=video_h,
+            placement_mode=snapshot["placement_mode"],
+            font_size_pct=snapshot["burn_font_size"],
+            font_color=snapshot["burn_font_color"],
+            font_color_opacity=snapshot["burn_font_color_opacity"],
+            pos_x_ratio=snapshot["burn_x"],
+            pos_y_ratio=snapshot["burn_y"],
+            text_width_ratio=snapshot["burn_text_width"],
+        )
+        ass_tmp.write_text(ass_text, encoding="utf-8")
+
+        await asyncio.to_thread(
+            burn_subtitles,
+            str(input_video_tmp),
+            str(ass_tmp),
+            str(output_video_tmp),
+            placement_mode=snapshot["placement_mode"],
+            video_w=video_w,
+            video_h=video_h,
+        )
+
+        output_tos_prefix = snapshot.get("output_tos_prefix") or ""
+        if output_tos_prefix.startswith("tos://"):
+            _, output_tos_key_prefix = _parse_tos_uri(output_tos_prefix)
+        else:
+            output_tos_key_prefix = output_tos_prefix.rstrip("/")
+
+        out_key = _output_tos_key(
+            output_tos_key_prefix, drama_index, episode_index, filename, f"output.{lang}.mp4"
+        )
+        await asyncio.to_thread(tos.upload_file, out_key, str(output_video_tmp), "video/mp4")
+        t["output_video_tos_uri"] = tos.tos_uri(out_key)
+        t["output_video_tos_public_url"] = tos.public_url(out_key)
+        t["output_video_oss_uri"] = None
+        t["output_public_url"] = tos.public_url(out_key)
+        t["translation_status"] = None
+        await _persist_items(db, job_id, items)
+
+        if tos_bj is not None:
+            try:
+                sg_public_url = t["output_video_tos_public_url"]
+                bj_tos_uri, bj_public_url, _bj_size = await asyncio.to_thread(
+                    tos_bj.fetch_from_url, out_key, sg_public_url
+                )
+                t["output_video_bj_tos_uri"] = bj_tos_uri
+                t["output_video_bj_tos_public_url"] = bj_public_url
+                t["bj_fetch_error"] = None
+            except Exception as bj_exc:  # noqa: BLE001
+                logger.warning(
+                    "BJ fetch failed for %s/%d/%s (SG URL still works): %s",
+                    job_id, index, lang, str(bj_exc)[:300]
+                )
+                t["output_video_bj_tos_uri"] = None
+                t["output_video_bj_tos_public_url"] = None
+                t["bj_fetch_error"] = str(bj_exc)[:500]
+            await _persist_items(db, job_id, items)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 async def run_subtitle_erase_translate_job(

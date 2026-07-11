@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from pydantic import BaseModel, Field, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 
 def _to_utc_iso(value: datetime | None) -> str | None:
@@ -515,7 +515,7 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     burn_mode: str = Field(default="mps", pattern="^(local|aliyun|mps)$")
     placement_mode: str = Field(default="safe_bottom", pattern="^(safe_bottom|simple_bottom)$")
     source_lang: str | None = None
-    target_lang: str
+    target_langs: list[str]
     model_provider: str | None = None
     model_name: str | None = None
     qps: int = Field(default=30, ge=1, le=100)
@@ -538,6 +538,13 @@ class SubtitleEraseJobCreateRequest(BaseModel):
     items: list[SubtitleEraseJobItemSpec]
     original_filenames: list[str] | None = None
 
+    @field_validator("target_langs")
+    @classmethod
+    def at_least_one_lang(cls, v: list[str]) -> list[str]:
+        if not v or not all(isinstance(x, str) and x.strip() for x in v):
+            raise ValueError("target_langs 必须至少包含一个非空语言代码")
+        return v
+
 
 class SubtitleEraseRerunRequest(BaseModel):
     """重新运行已有任务时可修改的参数（不含视频文件列表）。"""
@@ -547,7 +554,7 @@ class SubtitleEraseRerunRequest(BaseModel):
     burn_mode: str = Field(pattern="^(local|aliyun|mps)$")
     placement_mode: str = Field(pattern="^(safe_bottom|simple_bottom)$")
     source_lang: str | None = None
-    target_lang: str
+    target_langs: list[str]
     model_provider: str | None = None
     model_name: str | None = None
     qps: int = Field(ge=1, le=100)
@@ -564,6 +571,37 @@ class SubtitleEraseRerunRequest(BaseModel):
     burn_y: float = Field(ge=0.0, le=1.0)
     burn_text_width: float = Field(ge=0.1, le=1.0)
 
+    # 强制重做共享阶段(默认 False,自动复用已成功产物)
+    force_redetext: bool = False
+    force_recaption: bool = False
+
+    @field_validator("target_langs")
+    @classmethod
+    def at_least_one_lang(cls, v: list[str]) -> list[str]:
+        if not v or not all(isinstance(x, str) and x.strip() for x in v):
+            raise ValueError("target_langs 必须至少包含一个非空语言代码")
+        return v
+
+
+class SubtitleEraseTranslationItemOut(BaseModel):
+    """单语言的翻译+烧录产物。"""
+
+    translated_srt_oss_uri: str | None = None
+    output_video_oss_uri: str | None = None
+    output_public_url: str | None = None
+    translation_job_id: str | None = None
+    translation_status: str | None = None
+    mps_job_id: str | None = None
+    burn_ass_oss_uri: str | None = None
+    output_video_tos_uri: str | None = None
+    output_video_tos_public_url: str | None = None
+    output_video_bj_tos_uri: str | None = None
+    output_video_bj_tos_public_url: str | None = None
+    bj_fetch_error: str | None = None
+    stage: str = "pending"
+    status: str = "pending"
+    error: str | None = None
+
 
 class SubtitleEraseJobItemOut(BaseModel):
     index: int
@@ -573,34 +611,26 @@ class SubtitleEraseJobItemOut(BaseModel):
     input_oss_uri: str
     input_public_url: str
 
+    # 跨语言共享产物(擦除 + 字幕提取,只做一次)
     caption_job_id: str | None
     caption_status: str | None
     source_srt_oss_uri: str | None
     cleaned_srt_oss_uri: str | None
-    translated_srt_oss_uri: str | None
 
     detext_job_id: str | None
     detext_status: str | None
     clean_video_oss_uri: str | None
+    clean_video_public_url: str | None = None
 
-    translation_job_id: str | None
-    translation_status: str | None
+    warning: str | None = None
 
-    output_video_oss_uri: str | None
-    output_public_url: str | None
-    output_video_tos_uri: str | None
-    output_video_tos_public_url: str | None
-    output_video_bj_tos_uri: str | None
-    output_video_bj_tos_public_url: str | None
-    bj_fetch_error: str | None
+    # 每语言独立的翻译+烧录产物
+    translations: dict[str, SubtitleEraseTranslationItemOut]
 
-    mps_job_id: str | None
-    burn_ass_oss_uri: str | None
-
+    # item 级汇总状态
     stage: str
     status: str
     error: str | None
-    warning: str | None = None
 
 
 class SubtitleEraseJobOut(BaseModel):
@@ -614,7 +644,7 @@ class SubtitleEraseJobOut(BaseModel):
     burn_mode: str
     placement_mode: str
     source_lang: str | None
-    target_lang: str
+    target_langs: list[str]
     model_provider: str | None
     model_name: str | None
     qps: int
@@ -657,7 +687,7 @@ class SubtitleEraseJobSummary(BaseModel):
     detext_mode: str
     translate_mode: str
     burn_mode: str
-    target_lang: str
+    target_langs: list[str]
     status: str
     succeeded_count: int
     failed_count: int

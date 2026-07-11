@@ -224,7 +224,9 @@ class VideoSubtitleEraseJob(Base):
     burn_mode: Mapped[str] = mapped_column(String(16), default="mps")  # local / aliyun / mps
     placement_mode: Mapped[str] = mapped_column(String(32), default="safe_bottom")  # safe_bottom / simple_bottom
     source_lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    target_lang: Mapped[str] = mapped_column(String(16))
+    # 多语言:JSON 数组,如 ["pt","en"]。旧字段 target_lang 保留做迁移兜底,新代码用 target_langs_json
+    target_lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_langs_json: Mapped[str] = mapped_column(String(255), default="[]")
     model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 

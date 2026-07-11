@@ -83,7 +83,7 @@ export function SubtitleEraseHistoryPage() {
                 <p className="text-xs text-muted-foreground">
                   {item.drama_count} 部剧 · {item.video_count} 集 ·{" "}
                   {item.detext_mode === "advanced" ? "高级擦除" : "基础擦除"} ·{" "}
-                  {item.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {item.target_lang} ·
+                  {item.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {item.target_langs.map((l) => l).join(",")} ·
                   成功 {item.succeeded_count} · 失败 {item.failed_count} · 创建于{" "}
                   {new Date(item.created_at).toLocaleString()}
                 </p>

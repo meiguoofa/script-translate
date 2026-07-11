@@ -182,7 +182,7 @@ type FormParams = {
   burnMode: "local" | "aliyun" | "mps";
   placementMode: "safe_bottom" | "simple_bottom";
   sourceLang: string;
-  targetLang: string;
+  targetLangs: string[];
   modelProvider: string;
   modelName: string;
   qps: number;
@@ -205,7 +205,7 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   burnMode: "mps",
   placementMode: "safe_bottom",
   sourceLang: "auto",
-  targetLang: "zh",
+  targetLangs: ["zh"],
   modelProvider: "",
   modelName: "",
   qps: 10,
@@ -235,7 +235,7 @@ export function SubtitleErasePage() {
   const [burnMode, setBurnMode] = useState<"local" | "aliyun" | "mps">(DEFAULT_FORM_PARAMS.burnMode);
   const [placementMode, setPlacementMode] = useState<"safe_bottom" | "simple_bottom">(DEFAULT_FORM_PARAMS.placementMode);
   const [sourceLang, setSourceLang] = useState<string>(DEFAULT_FORM_PARAMS.sourceLang);
-  const [targetLang, setTargetLang] = useState<string>(DEFAULT_FORM_PARAMS.targetLang);
+  const [targetLangs, setTargetLangs] = useState<string[]>(DEFAULT_FORM_PARAMS.targetLangs);
   const [modelProvider, setModelProvider] = useState<string>(DEFAULT_FORM_PARAMS.modelProvider);
   const [modelName, setModelName] = useState<string>(DEFAULT_FORM_PARAMS.modelName);
   const [qps, setQps] = useState<number>(DEFAULT_FORM_PARAMS.qps);
@@ -273,7 +273,7 @@ export function SubtitleErasePage() {
         if (data.burnMode) setBurnMode(data.burnMode as "local" | "aliyun" | "mps");
         if (data.placementMode) setPlacementMode(data.placementMode as "safe_bottom" | "simple_bottom");
         if (typeof data.sourceLang === "string") setSourceLang(data.sourceLang);
-        if (typeof data.targetLang === "string") setTargetLang(data.targetLang);
+        if (Array.isArray(data.targetLangs)) setTargetLangs(data.targetLangs);
         if (typeof data.modelProvider === "string" && data.modelProvider) setModelProvider(data.modelProvider);
         if (typeof data.modelName === "string" && data.modelName) setModelName(data.modelName);
         if (typeof data.qps === "number") setQps(data.qps);
@@ -342,7 +342,7 @@ export function SubtitleErasePage() {
       const name = modelName || defModel?.name || "";
       const params: FormParams = {
         detextMode, translateMode, burnMode, placementMode,
-        sourceLang, targetLang, modelProvider: provider, modelName: name, qps,
+        sourceLang, targetLangs, modelProvider: provider, modelName: name, qps,
         captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
         detextRegionPct, burnFontSize, burnFontColor,
         burnX, burnY, burnTextWidth,
@@ -358,7 +358,7 @@ export function SubtitleErasePage() {
     };
   }, [
     detextMode, translateMode, burnMode, placementMode,
-    sourceLang, targetLang, modelProvider, modelName, qps,
+    sourceLang, targetLangs, modelProvider, modelName, qps,
     captionFps, captionLang, captionTrack, captionRoiPct, captionSep,
     detextRegionPct, burnFontSize, burnFontColor,
     burnX, burnY, burnTextWidth,
@@ -469,7 +469,7 @@ export function SubtitleErasePage() {
         burn_mode: burnMode,
         placement_mode: placementMode,
         source_lang: translateMode === "aliyun" || burnMode === "aliyun" ? sourceLang : null,
-        target_lang: targetLang,
+        target_langs: targetLangs,
         model_provider: translateMode === "llm" ? modelProvider : null,
         model_name: translateMode === "llm" ? modelName : null,
         qps,
@@ -667,19 +667,36 @@ export function SubtitleErasePage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label>翻译目标语言</Label>
-                <Select value={targetLang} onValueChange={setTargetLang}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TARGET_LANGS.map((l) => (
-                      <SelectItem key={l.value} value={l.value}>
-                        {l.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>翻译目标语言（可多选）</Label>
+                <div className="flex flex-wrap gap-3 rounded-md border p-3">
+                  {TARGET_LANGS.map((l) => {
+                    const checked = targetLangs.includes(l.value);
+                    return (
+                      <label key={l.value} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setTargetLangs((prev) =>
+                                prev.includes(l.value) ? prev : [...prev, l.value]
+                              );
+                            } else {
+                              setTargetLangs((prev) =>
+                                prev.length > 1 ? prev.filter((v) => v !== l.value) : prev
+                              );
+                            }
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm">{l.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {targetLangs.length === 0 ? (
+                  <p className="text-xs text-destructive">至少选择一个目标语言</p>
+                ) : null}
               </div>
 
               {translateMode === "llm" ? (
@@ -897,7 +914,7 @@ export function SubtitleErasePage() {
             <SummaryRow label="翻译模式" value={translateMode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} />
             <SummaryRow label="烧录模式" value={burnMode === "local" ? "本机 ffmpeg" : burnMode === "mps" ? "阿里云 MPS" : "阿里云 IMS"} />
             <SummaryRow label="字幕放置" value={placementMode === "safe_bottom" ? "safe_bottom" : "simple_bottom"} />
-            <SummaryRow label="目标语言" value={TARGET_LANGS.find((l) => l.value === targetLang)?.label || targetLang} />
+            <SummaryRow label="目标语言" value={targetLangs.map((v) => TARGET_LANGS.find((l) => l.value === v)?.label || v).join("、")} />
             <SummaryRow label="QPS" value={String(qps)} />
           </CardContent>
         </Card>

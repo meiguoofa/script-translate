@@ -29,6 +29,7 @@ from app.schemas import (
 from app.services.aliyun_oss_client import AliyunOSSClient
 from app.services.subtitle_erase_translate_runner import (
     RETRY_FIELDS,
+    TRANSLATION_FIELDS,
     run_subtitle_erase_translate_job,
 )
 from app.services.zombie_cleanup import ABORT_ERROR_MSG
@@ -47,6 +48,48 @@ def _items_counts(items: list[dict]) -> tuple[int, int]:
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")
     return succeeded, failed
+
+
+def _parse_target_langs_for_out(job: VideoSubtitleEraseJob) -> list[str]:
+    """从 target_langs_json 解析,失败回退到旧 target_lang 单字段。"""
+    if job.target_langs_json:
+        try:
+            langs = json.loads(job.target_langs_json)
+            if isinstance(langs, list) and langs:
+                return [str(x) for x in langs if str(x).strip()]
+        except json.JSONDecodeError:
+            pass
+    if job.target_lang:
+        return [job.target_lang]
+    return []
+
+
+def _item_translations_to_out(translations: dict | None) -> dict[str, dict]:
+    """items_json 内 translations 嵌套 -> SubtitleEraseTranslationItemOut 兼容 dict。"""
+    if not isinstance(translations, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for lang, t in translations.items():
+        if not isinstance(t, dict):
+            continue
+        out[lang] = {
+            "translated_srt_oss_uri": t.get("translated_srt_oss_uri"),
+            "output_video_oss_uri": t.get("output_video_oss_uri"),
+            "output_public_url": t.get("output_public_url"),
+            "translation_job_id": t.get("translation_job_id"),
+            "translation_status": t.get("translation_status"),
+            "mps_job_id": t.get("mps_job_id"),
+            "burn_ass_oss_uri": t.get("burn_ass_oss_uri"),
+            "output_video_tos_uri": t.get("output_video_tos_uri"),
+            "output_video_tos_public_url": t.get("output_video_tos_public_url"),
+            "output_video_bj_tos_uri": t.get("output_video_bj_tos_uri"),
+            "output_video_bj_tos_public_url": t.get("output_video_bj_tos_public_url"),
+            "bj_fetch_error": t.get("bj_fetch_error"),
+            "stage": t.get("stage", "pending"),
+            "status": t.get("status", "pending"),
+            "error": t.get("error"),
+        }
+    return out
 
 
 def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
@@ -75,21 +118,12 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
                 caption_status=it.get("caption_status"),
                 source_srt_oss_uri=it.get("source_srt_oss_uri"),
                 cleaned_srt_oss_uri=it.get("cleaned_srt_oss_uri"),
-                translated_srt_oss_uri=it.get("translated_srt_oss_uri"),
                 detext_job_id=it.get("detext_job_id"),
                 detext_status=it.get("detext_status"),
                 clean_video_oss_uri=it.get("clean_video_oss_uri"),
-                translation_job_id=it.get("translation_job_id"),
-                translation_status=it.get("translation_status"),
-                output_video_oss_uri=it.get("output_video_oss_uri"),
-                output_public_url=it.get("output_public_url"),
-                output_video_tos_uri=it.get("output_video_tos_uri"),
-                output_video_tos_public_url=it.get("output_video_tos_public_url"),
-                output_video_bj_tos_uri=it.get("output_video_bj_tos_uri"),
-                output_video_bj_tos_public_url=it.get("output_video_bj_tos_public_url"),
-                bj_fetch_error=it.get("bj_fetch_error"),
-                mps_job_id=it.get("mps_job_id"),
-                burn_ass_oss_uri=it.get("burn_ass_oss_uri"),
+                clean_video_public_url=it.get("clean_video_public_url"),
+                warning=it.get("warning"),
+                translations=_item_translations_to_out(it.get("translations")),
                 stage=it.get("stage", "pending"),
                 status=it.get("status", "pending"),
                 error=it.get("error"),
@@ -105,7 +139,7 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
         burn_mode=job.burn_mode,
         placement_mode=job.placement_mode,
         source_lang=job.source_lang,
-        target_lang=job.target_lang,
+        target_langs=_parse_target_langs_for_out(job),
         model_provider=job.model_provider,
         model_name=job.model_name,
         qps=job.qps,
@@ -151,7 +185,7 @@ def _job_to_summary(job: VideoSubtitleEraseJob) -> SubtitleEraseJobSummary:
         detext_mode=job.detext_mode,
         translate_mode=job.translate_mode,
         burn_mode=job.burn_mode,
-        target_lang=job.target_lang,
+        target_langs=_parse_target_langs_for_out(job),
         status=job.status,
         succeeded_count=succeeded,
         failed_count=failed,
@@ -378,25 +412,19 @@ async def create_subtitle_erase_job(
                 "filename": spec.filename,
                 "input_oss_uri": spec.oss_uri,
                 "input_public_url": spec.public_url,
+                # 跨语言共享产物(擦除 + 字幕提取)
                 "caption_job_id": None,
                 "caption_status": None,
                 "source_srt_oss_uri": None,
                 "cleaned_srt_oss_uri": None,
-                "translated_srt_oss_uri": None,
                 "detext_job_id": None,
                 "detext_status": None,
                 "clean_video_oss_uri": None,
-                "translation_job_id": None,
-                "translation_status": None,
-                "output_video_oss_uri": None,
-                "output_public_url": None,
-                "output_video_tos_uri": None,
-                "output_video_tos_public_url": None,
-                "output_video_bj_tos_uri": None,
-                "output_video_bj_tos_public_url": None,
-                "bj_fetch_error": None,
-                "mps_job_id": None,
-                "burn_ass_oss_uri": None,
+                "clean_video_public_url": None,
+                "warning": None,
+                # 每语言独立产物
+                "translations": {},
+                # item 级汇总状态
                 "stage": "pending",
                 "status": "pending",
                 "error": None,
@@ -415,7 +443,8 @@ async def create_subtitle_erase_job(
         burn_mode=payload.burn_mode,
         placement_mode=payload.placement_mode,
         source_lang=payload.source_lang,
-        target_lang=payload.target_lang,
+        target_lang=payload.target_langs[0] if payload.target_langs else None,
+        target_langs_json=json.dumps(payload.target_langs, ensure_ascii=False),
         model_provider=payload.model_provider,
         model_name=payload.model_name,
         qps=payload.qps,
@@ -538,6 +567,12 @@ async def stop_running_job(
         if it.get("status") == "running":
             it["status"] = "failed"
             it["error"] = ABORT_ERROR_MSG
+            # translations 内 running 的也标 failed
+            if isinstance(it.get("translations"), dict):
+                for t in it["translations"].values():
+                    if t.get("status") == "running":
+                        t["status"] = "failed"
+                        t["error"] = ABORT_ERROR_MSG
     job.items_json = json.dumps(items, ensure_ascii=False)
     await session.commit()
     await session.refresh(job)
@@ -565,13 +600,25 @@ async def retry_failed_items(
     if not failed_indices:
         raise HTTPException(status_code=400, detail="没有可重试的失败项")
 
+    # 只重置失败语言的 translations 子项,保留跨语言共享产物(擦除/字幕提取)
+    # 这样 retry 不会重复付费跑擦除和字幕提取
     for idx in failed_indices:
-        items[idx]["status"] = "pending"
-        items[idx]["stage"] = "pending"
-        for f in RETRY_FIELDS:
-            items[idx][f] = None
+        it = items[idx]
+        if not isinstance(it.get("translations"), dict):
+            it["translations"] = {}
+        for lang, t in it["translations"].items():
+            if t.get("status") == "failed":
+                for f in TRANSLATION_FIELDS:
+                    t[f] = None
+                t["status"] = "pending"
+                t["stage"] = "pending"
+                t["error"] = None
+        it["status"] = "pending"
+        it["stage"] = "pending"
+        it["error"] = None
     job.items_json = json.dumps(items, ensure_ascii=False)
-    job.status = "running"
+    job.status = "pending"
+    job.progress_message = "排队中"
     job.error_message = None
     job.completed_at = None
     await session.commit()
@@ -624,7 +671,8 @@ async def rerun_all_items(
     job.burn_mode = payload.burn_mode
     job.placement_mode = payload.placement_mode
     job.source_lang = payload.source_lang
-    job.target_lang = payload.target_lang
+    job.target_lang = payload.target_langs[0] if payload.target_langs else None
+    job.target_langs_json = json.dumps(payload.target_langs, ensure_ascii=False)
     job.model_provider = payload.model_provider
     job.model_name = payload.model_name
     job.qps = payload.qps
@@ -641,16 +689,42 @@ async def rerun_all_items(
     job.burn_y = payload.burn_y
     job.burn_text_width = payload.burn_text_width
 
-    # 重置所有 items
+    # 重置所有 items:
+    # - force_redetext=True: 清擦除产物(clean_video_oss_uri, detext_*)
+    # - force_recaption=True: 清字幕提取产物(source_srt_oss_uri, cleaned_srt_oss_uri, caption_*)
+    # - 默认: 共享产物保留(自动复用)
+    # - translations 始终重置(用户可能改了 target_langs 或烧录参数)
+    # 新增的 target_langs 中,之前没跑过的语言会自动开始;之前跑过的语言被重置重跑
     items: list[dict] = json.loads(job.items_json or "[]")
+    new_langs = set(payload.target_langs)
     for item in items:
+        if not isinstance(item.get("translations"), dict):
+            item["translations"] = {}
+        if payload.force_redetext:
+            for f in ("detext_job_id", "detext_status", "clean_video_oss_uri", "clean_video_public_url"):
+                item[f] = None
+        if payload.force_recaption:
+            for f in ("caption_job_id", "caption_status", "source_srt_oss_uri", "cleaned_srt_oss_uri"):
+                item[f] = None
+        item["warning"] = None
+        # 删除不在新 target_langs 中的旧语言产物
+        for old_lang in list(item["translations"].keys()):
+            if old_lang not in new_langs:
+                del item["translations"][old_lang]
+        # 重置保留语言的 translations(参数可能变了,需重跑)
+        for lang in payload.target_langs:
+            t = item["translations"].setdefault(lang, {})
+            for f in TRANSLATION_FIELDS:
+                t[f] = None
+            t["status"] = "pending"
+            t["stage"] = "pending"
+            t["error"] = None
         item["status"] = "pending"
         item["stage"] = "pending"
-        for f in RETRY_FIELDS:
-            item[f] = None
+        item["error"] = None
     job.items_json = json.dumps(items, ensure_ascii=False)
-    job.status = "running"
-    job.progress_message = None
+    job.status = "pending"
+    job.progress_message = "排队中"
     job.error_message = None
     job.submitted_at = None
     job.completed_at = None

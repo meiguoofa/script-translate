@@ -12,6 +12,7 @@ from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
 from app.services.zombie_cleanup import cleanup_zombie_jobs
+from app.services.migrate_items import migrate_items_to_translations
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 from app.routers import (
@@ -80,6 +81,11 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # 启动时清理上次服务重启遗留的 zombie job（status=running 但 updated_at 超时）
         await db.init_models()
+        # 迁移旧 subtitle-erase items_json 到 translations 嵌套结构(幂等,已迁移的跳过)
+        try:
+            await migrate_items_to_translations(db)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger("app.main").warning("items_json 迁移失败（不阻塞启动）: %s", exc)
         try:
             cleaned = await cleanup_zombie_jobs(db)
             if cleaned:

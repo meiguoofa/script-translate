@@ -370,25 +370,14 @@ export type SubtitleEraseItemStatus =
   | "succeeded"
   | "failed";
 
-export type SubtitleEraseJobItemOut = {
-  index: number;
-  drama_index: number;
-  episode_index: number;
-  filename: string;
-  input_oss_uri: string;
-  input_public_url: string;
-  caption_job_id: string | null;
-  caption_status: string | null;
-  source_srt_oss_uri: string | null;
-  cleaned_srt_oss_uri: string | null;
+export type SubtitleEraseTranslationItemOut = {
   translated_srt_oss_uri: string | null;
-  detext_job_id: string | null;
-  detext_status: string | null;
-  clean_video_oss_uri: string | null;
-  translation_job_id: string | null;
-  translation_status: string | null;
   output_video_oss_uri: string | null;
   output_public_url: string | null;
+  translation_job_id: string | null;
+  translation_status: string | null;
+  mps_job_id: string | null;
+  burn_ass_oss_uri: string | null;
   output_video_tos_uri: string | null;
   output_video_tos_public_url: string | null;
   output_video_bj_tos_uri: string | null;
@@ -397,7 +386,31 @@ export type SubtitleEraseJobItemOut = {
   stage: SubtitleEraseItemStage;
   status: SubtitleEraseItemStatus;
   error: string | null;
+};
+
+export type SubtitleEraseJobItemOut = {
+  index: number;
+  drama_index: number;
+  episode_index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_public_url: string;
+  // 跨语言共享产物(擦除 + 字幕提取)
+  caption_job_id: string | null;
+  caption_status: string | null;
+  source_srt_oss_uri: string | null;
+  cleaned_srt_oss_uri: string | null;
+  detext_job_id: string | null;
+  detext_status: string | null;
+  clean_video_oss_uri: string | null;
+  clean_video_public_url: string | null;
   warning: string | null;
+  // 每语言独立产物
+  translations: Record<string, SubtitleEraseTranslationItemOut>;
+  // item 级汇总状态
+  stage: SubtitleEraseItemStage;
+  status: SubtitleEraseItemStatus;
+  error: string | null;
 };
 
 export type SubtitleEraseJobOut = {
@@ -410,7 +423,7 @@ export type SubtitleEraseJobOut = {
   burn_mode: "local" | "aliyun" | "mps";
   placement_mode: "safe_bottom" | "simple_bottom";
   source_lang: string | null;
-  target_lang: string;
+  target_langs: string[];
   model_provider: string | null;
   model_name: string | null;
   qps: number;
@@ -449,7 +462,7 @@ export type SubtitleEraseJobSummary = {
   detext_mode: "basic" | "advanced";
   translate_mode: "aliyun" | "llm";
   burn_mode: "local" | "aliyun" | "mps";
-  target_lang: string;
+  target_langs: string[];
   status: "pending" | "running" | "completed" | "failed";
   succeeded_count: number;
   failed_count: number;
@@ -475,7 +488,7 @@ export type SubtitleEraseJobCreateInput = {
   burn_mode: "local" | "aliyun" | "mps";
   placement_mode: "safe_bottom" | "simple_bottom";
   source_lang?: string | null;
-  target_lang: string;
+  target_langs: string[];
   model_provider?: string | null;
   model_name?: string | null;
   qps: number;
@@ -501,7 +514,7 @@ export type SubtitleEraseRerunRequest = {
   burn_mode: "local" | "aliyun" | "mps";
   placement_mode: "safe_bottom" | "simple_bottom";
   source_lang?: string | null;
-  target_lang: string;
+  target_langs: string[];
   model_provider?: string | null;
   model_name?: string | null;
   qps: number;
@@ -517,4 +530,7 @@ export type SubtitleEraseRerunRequest = {
   burn_x: number;
   burn_y: number;
   burn_text_width: number;
+  // 强制重做共享阶段(默认 false,自动复用已成功产物)
+  force_redetext?: boolean;
+  force_recaption?: boolean;
 };
