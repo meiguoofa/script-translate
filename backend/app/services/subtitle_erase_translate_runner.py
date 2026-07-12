@@ -15,7 +15,7 @@ from app.db import Database
 from app.llm.registry import ProviderRegistry
 from app.models import VideoSubtitleEraseJob
 from app.services.aliyun_oss_client import AliyunOSSClient
-from app.services.ffmpeg_burn import burn_subtitles, probe_video_size
+from app.services.ffmpeg_burn import burn_subtitles, probe_video_size, probe_video_duration_seconds
 from app.services.ims_client import IMSClient
 from app.services.mps_client import MPSClient
 from app.services.rate_limiter import RateLimiter
@@ -321,6 +321,13 @@ async def _probe_oss_video_size(oss: AliyunOSSClient, oss_uri: str) -> tuple[int
     return await asyncio.to_thread(probe_video_size, url)
 
 
+async def _probe_oss_video_duration(oss: AliyunOSSClient, oss_uri: str) -> float:
+    """用 ffprobe 探 OSS 公网 HTTPS URL 的视频时长(秒)。失败返回 0。"""
+    _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
+    url = oss.public_url(key)
+    return await asyncio.to_thread(probe_video_duration_seconds, url)
+
+
 async def _run_episode(
     db: Database,
     job_id: str,
@@ -401,6 +408,17 @@ async def _run_episode_impl(
         item["translations"] = {}
 
     name_prefix = f"{job_id[:8]}-d{drama_index:02d}-e{episode_index:02d}"
+
+    # ===== 阶段 0: 探测视频时长(用于前端展示总时长/单集时长)=====
+    # retry/rerun-all 时复用已有 duration_seconds,不重复 ffprobe
+    if not item.get("duration_seconds"):
+        try:
+            duration = await _probe_oss_video_duration(oss, input_oss_uri)
+            item["duration_seconds"] = duration
+            await _persist_items(db, job_id, items)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("probe duration %s/%d failed: %s", job_id, index, exc)
+            item["duration_seconds"] = 0
 
     # ===== 阶段 1: 并行提交字幕提取 + 字幕擦除(跨语言共享,只做一次)=====
     has_clean_video = bool(item.get("clean_video_oss_uri")) and not force_redetext

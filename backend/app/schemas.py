@@ -627,6 +627,9 @@ class SubtitleEraseJobItemOut(BaseModel):
     # 每语言独立的翻译+烧录产物
     translations: dict[str, SubtitleEraseTranslationItemOut]
 
+    # 视频时长(秒),阶段 0 用 ffprobe 探测后填充
+    duration_seconds: float | None = None
+
     # item 级汇总状态
     stage: str
     status: str
@@ -673,6 +676,9 @@ class SubtitleEraseJobOut(BaseModel):
     error_message: str | None
     succeeded_count: int
     failed_count: int
+    detexted_count: int
+    captioned_count: int
+    total_duration_seconds: float
     submitted_at: UTCDatetime | None
     completed_at: UTCDatetime | None
     created_at: UTCDatetime
@@ -691,6 +697,9 @@ class SubtitleEraseJobSummary(BaseModel):
     status: str
     succeeded_count: int
     failed_count: int
+    detexted_count: int
+    captioned_count: int
+    total_duration_seconds: float
     error_message: str | None
     created_at: UTCDatetime
     updated_at: UTCDatetime

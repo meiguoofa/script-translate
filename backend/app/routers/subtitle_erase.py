@@ -50,6 +50,22 @@ def _items_counts(items: list[dict]) -> tuple[int, int]:
     return succeeded, failed
 
 
+def _items_stats(items: list[dict]) -> dict:
+    """汇总统计: 成功/失败/已擦除/已提取字幕/总时长。"""
+    succeeded = sum(1 for it in items if it.get("status") == "succeeded")
+    failed = sum(1 for it in items if it.get("status") == "failed")
+    detexted = sum(1 for it in items if it.get("clean_video_oss_uri"))
+    captioned = sum(1 for it in items if it.get("cleaned_srt_oss_uri"))
+    total_duration = sum(float(it.get("duration_seconds") or 0) for it in items)
+    return {
+        "succeeded_count": succeeded,
+        "failed_count": failed,
+        "detexted_count": detexted,
+        "captioned_count": captioned,
+        "total_duration_seconds": total_duration,
+    }
+
+
 def _parse_target_langs_for_out(job: VideoSubtitleEraseJob) -> list[str]:
     """从 target_langs_json 解析,失败回退到旧 target_lang 单字段。"""
     if job.target_langs_json:
@@ -104,6 +120,7 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
     except Exception:
         filenames = None
     succeeded, failed = _items_counts(items)
+    stats = _items_stats(items)
     items_out: list[SubtitleEraseJobItemOut] = []
     for it in items:
         items_out.append(
@@ -124,6 +141,7 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
                 clean_video_public_url=it.get("clean_video_public_url"),
                 warning=it.get("warning"),
                 translations=_item_translations_to_out(it.get("translations")),
+                duration_seconds=it.get("duration_seconds"),
                 stage=it.get("stage", "pending"),
                 status=it.get("status", "pending"),
                 error=it.get("error"),
@@ -164,6 +182,9 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
         error_message=job.error_message,
         succeeded_count=succeeded,
         failed_count=failed,
+        detexted_count=stats["detexted_count"],
+        captioned_count=stats["captioned_count"],
+        total_duration_seconds=stats["total_duration_seconds"],
         submitted_at=job.submitted_at,
         completed_at=job.completed_at,
         created_at=job.created_at,
@@ -177,6 +198,7 @@ def _job_to_summary(job: VideoSubtitleEraseJob) -> SubtitleEraseJobSummary:
     except Exception:
         items = []
     succeeded, failed = _items_counts(items)
+    stats = _items_stats(items)
     return SubtitleEraseJobSummary(
         id=job.id,
         title=job.title,
@@ -189,6 +211,9 @@ def _job_to_summary(job: VideoSubtitleEraseJob) -> SubtitleEraseJobSummary:
         status=job.status,
         succeeded_count=succeeded,
         failed_count=failed,
+        detexted_count=stats["detexted_count"],
+        captioned_count=stats["captioned_count"],
+        total_duration_seconds=stats["total_duration_seconds"],
         error_message=job.error_message,
         created_at=job.created_at,
         updated_at=job.updated_at,
@@ -424,6 +449,8 @@ async def create_subtitle_erase_job(
                 "warning": None,
                 # 每语言独立产物
                 "translations": {},
+                # 视频时长(秒),阶段 0 用 ffprobe 探测后填充
+                "duration_seconds": None,
                 # item 级汇总状态
                 "stage": "pending",
                 "status": "pending",

@@ -84,6 +84,16 @@ const TARGET_LANG_LABELS: Record<string, string> = {
   pt: "葡萄牙语",
 };
 
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return "--";
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export function SubtitleEraseDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -347,7 +357,7 @@ export function SubtitleEraseDetailPage() {
               </Badge>
             </CardTitle>
             <CardDescription>
-              {job.drama_count} 部剧 · {job.video_count} 集 · {job.detext_mode === "advanced" ? "高级版擦除" : "基础版擦除"} ·{" "}
+              {job.drama_count} 部剧 · {job.video_count} 集 · 总时长 {formatDuration(job.total_duration_seconds)} · {job.detext_mode === "advanced" ? "高级版擦除" : "基础版擦除"} · 已擦除 {job.detexted_count}/{job.video_count} 集 · 已提取字幕 {job.captioned_count}/{job.video_count} 集 ·{" "}
               {job.translate_mode === "aliyun" ? "阿里云翻译" : "LLM 翻译"} → {job.target_langs.map((l) => TARGET_LANG_LABELS[l] || l).join("、")} ·{" "}
               {job.burn_mode === "local" ? "本机 ffmpeg 烧录" : job.burn_mode === "mps" ? "MPS 烧录" : "阿里云 IMS 烧录"} ·
               成功 {job.succeeded_count} · 失败 {job.failed_count}
@@ -697,6 +707,13 @@ export function SubtitleEraseDetailPage() {
                           第 {item.episode_index + 1} 集
                         </span>
                         <span className="truncate font-medium">{item.filename}</span>
+                        <span className="text-xs text-muted-foreground">⏱ {formatDuration(item.duration_seconds)}</span>
+                        {item.clean_video_oss_uri ? (
+                          <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" />已擦除</Badge>
+                        ) : null}
+                        {item.cleaned_srt_oss_uri ? (
+                          <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" />已提取字幕</Badge>
+                        ) : null}
                         <Badge variant={ib.variant}>
                           {itemStatus === "running" ? (
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />

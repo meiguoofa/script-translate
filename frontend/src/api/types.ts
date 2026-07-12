@@ -411,6 +411,8 @@ export type SubtitleEraseJobItemOut = {
   stage: SubtitleEraseItemStage;
   status: SubtitleEraseItemStatus;
   error: string | null;
+  // 视频时长(秒),ffprobe 探测后填充
+  duration_seconds: number | null;
 };
 
 export type SubtitleEraseJobOut = {
@@ -448,6 +450,9 @@ export type SubtitleEraseJobOut = {
   error_message: string | null;
   succeeded_count: number;
   failed_count: number;
+  detexted_count: number;
+  captioned_count: number;
+  total_duration_seconds: number;
   submitted_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -466,6 +471,9 @@ export type SubtitleEraseJobSummary = {
   status: "pending" | "running" | "completed" | "failed";
   succeeded_count: number;
   failed_count: number;
+  detexted_count: number;
+  captioned_count: number;
+  total_duration_seconds: number;
   error_message: string | null;
   created_at: string;
   updated_at: string;

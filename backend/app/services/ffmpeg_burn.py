@@ -31,6 +31,25 @@ def probe_video_size(video_path: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def probe_video_duration_seconds(video_path: str) -> float:
+    """用 ffprobe 获取视频时长(秒)。失败返回 0。"""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip())
+    except Exception:  # noqa: BLE001
+        logger.warning("probe_video_duration failed for %s", video_path)
+        return 0.0
+
+
 def burn_subtitles(
     input_video: str,
     ass_path: str,
