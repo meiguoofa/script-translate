@@ -47,7 +47,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     ) -> TranslationBatchResult:
         response = await self.client.chat.completions.create(
             model=model,
-            temperature=0.4,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_prompt(target_lang, context, lines)},
@@ -78,7 +77,6 @@ class AnthropicMessagesProvider(BaseLLMProvider):
         payload = {
             "model": model,
             "max_tokens": 4096,
-            "temperature": 0.4,
             "system": SYSTEM_PROMPT,
             "messages": [
                 {"role": "user", "content": build_prompt(target_lang, context, lines)},
