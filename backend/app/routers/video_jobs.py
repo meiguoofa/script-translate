@@ -183,6 +183,49 @@ async def create_video_job(
     return _job_to_out(job)
 
 
+@router.post(
+    "/{job_id}/retry",
+    response_model=VideoJobOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def retry_video_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
+) -> VideoJobOut:
+    """重置 failed 任务状态后重跑。复用同一 job_id、视频 URL、提示词、output_tos_path。"""
+
+    job = await session.get(VideoScriptJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status != "failed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"只有失败的任务才能重试（当前: {job.status}）",
+        )
+
+    job.status = "pending"
+    job.error_message = None
+    job.progress_message = None
+    job.las_task_id = None
+    job.submitted_at = None
+    job.completed_at = None
+    job.generated_script_text = None
+    job.generated_script_id = None
+    await session.commit()
+    await session.refresh(job)
+
+    state = request.app.state
+
+    async def _runner() -> None:
+        await run_video_script_job(state.db, state.settings, job.id)
+
+    background_tasks.add_task(_runner)
+    return _job_to_out(job)
+
+
 @router.get("/{job_id}", response_model=VideoJobOut)
 async def get_video_job(job_id: str, session: AsyncSession = Depends(get_session)) -> VideoJobOut:
     job = await session.get(VideoScriptJob, job_id)

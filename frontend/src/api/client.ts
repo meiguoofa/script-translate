@@ -175,6 +175,11 @@ export async function getVideoJob(jobId: string) {
   return response.data;
 }
 
+export async function retryVideoJob(jobId: string) {
+  const response = await client.post<VideoJobOut>(`/video-jobs/${jobId}/retry`);
+  return response.data;
+}
+
 export async function listVideoJobs(params?: { limit?: number; offset?: number }) {
   const response = await client.get<VideoJobSummary[]>("/video-jobs", { params });
   return response.data;

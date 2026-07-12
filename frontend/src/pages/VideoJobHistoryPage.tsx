@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Download } from "lucide-react";
-import { getScriptDownloadUrl, listVideoJobs } from "@/api/client";
+import { Download, Loader2, RotateCcw } from "lucide-react";
+import { getScriptDownloadUrl, listVideoJobs, retryVideoJob } from "@/api/client";
 import type { VideoJobSummary } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ export function VideoJobHistoryPage() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   async function loadMore(reset = false) {
     setLoading(true);
@@ -47,6 +48,19 @@ export function VideoJobHistoryPage() {
       toast.error("加载历史失败");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRetry(jobId: string) {
+    setRetryingId(jobId);
+    try {
+      await retryVideoJob(jobId);
+      toast.success("已重新提交");
+      await loadMore(true);
+    } catch {
+      toast.error("重试失败");
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -97,6 +111,21 @@ export function VideoJobHistoryPage() {
                     查看详情
                   </Button>
                 </Link>
+                {item.status === "failed" ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleRetry(item.id)}
+                    disabled={retryingId === item.id}
+                  >
+                    {retryingId === item.id ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                    )}
+                    重试
+                  </Button>
+                ) : null}
                 {item.status === "completed" && item.generated_script_id ? (
                   <>
                     <Link to={`/scripts/${item.generated_script_id}`}>

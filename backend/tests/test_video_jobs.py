@@ -377,6 +377,127 @@ async def test_video_job_marks_failed_on_las_business_failure(tmp_path, monkeypa
         assert body["status"] == "failed"
         assert "LAS 业务失败" in body["error_message"]
         assert "tos://test-short-drama/uploads/x/y.mp4" in body["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_video_job_retry_resets_failed_job(tmp_path, monkeypatch):
+    """POST /video-jobs/{id}/retry resets a failed job and relaunches background task."""
+
+    base_env(monkeypatch, tmp_path)
+    app = load_create_app()()
+
+    # Mock LASClient so retry's background task doesn't actually hit LAS
+    async def fake_submit(self, **kwargs):
+        from app.services.las_client import LASSubmitResult
+
+        return LASSubmitResult(task_id="retry-task-id", raw={"metadata": {"task_id": "retry-task-id"}})
+
+    poll_calls = {"n": 0}
+
+    async def fake_poll(self, task_id):
+        from app.services.las_client import LASPollResult
+
+        poll_calls["n"] += 1
+        if poll_calls["n"] >= 2:
+            # Terminal: biz failure so runner exits quickly via the failed branch
+            return LASPollResult(
+                task_status="COMPLETED",
+                business_code="0",
+                error_msg="Task processed successfully",
+                data={"status": "failed", "failed_video_urls": [], "generated_script_count": 0, "input_episode_count": 1},
+                raw={"metadata": {"task_status": "COMPLETED"}, "data": {"status": "failed"}},
+            )
+        return LASPollResult(
+            task_status="RUNNING",
+            business_code="0",
+            error_msg=None,
+            data={},
+            raw={"metadata": {"task_status": "RUNNING"}},
+        )
+
+    monkeypatch.setattr("app.services.video_script_runner.LASClient.submit", fake_submit)
+    monkeypatch.setattr("app.services.video_script_runner.LASClient.poll", fake_poll)
+    monkeypatch.setattr(
+        "app.services.video_script_runner.LASClient.__init__",
+        lambda self, settings: setattr(self, "_settings", settings) or None,
+    )
+
+    import app.services.video_script_runner as runner_mod
+
+    async def _fast_sleep(_):
+        return None
+
+    monkeypatch.setattr(runner_mod.asyncio, "sleep", _fast_sleep)
+
+    headers = {"X-Access-Passphrase": "test-pass"}
+    job_id = "retry-test-001"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        # Directly insert a failed job via app's async DB session (bypass upload-url)
+        from app.models import VideoScriptJob
+
+        async with await app.state.db.session() as session:
+            job = VideoScriptJob(
+                id=job_id,
+                title="RetryMe",
+                video_count=1,
+                video_urls_json='["tos://test-short-drama/uploads/x/y.mp4"]',
+                prompt_template_id="default-las",
+                prompt_template_name="LAS 默认",
+                custom_script_prompt="prompt content",
+                output_tos_path="tos://test-short-drama/output/retry-test-001",
+                status="failed",
+                error_message="boom",
+                las_task_id="old-task-id",
+            )
+            session.add(job)
+            await session.commit()
+
+        # Call retry endpoint
+        resp = await client.post(f"/api/video-jobs/{job_id}/retry", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "pending"
+        assert body["error_message"] is None
+        assert body["las_task_id"] is None  # old task_id cleared
+        assert body["completed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_video_job_retry_rejects_non_failed(tmp_path, monkeypatch):
+    """POST /video-jobs/{id}/retry returns 400 if job is not failed."""
+
+    base_env(monkeypatch, tmp_path)
+    app = load_create_app()()
+
+    headers = {"X-Access-Passphrase": "test-pass"}
+    job_id = "running-test-002"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        # Insert a running job directly
+        from app.models import VideoScriptJob
+
+        async with await app.state.db.session() as session:
+            job = VideoScriptJob(
+                id=job_id,
+                title="Running",
+                video_count=1,
+                video_urls_json='["tos://test-short-drama/uploads/x/y.mp4"]',
+                prompt_template_id="default-las",
+                prompt_template_name="LAS 默认",
+                custom_script_prompt="prompt content",
+                output_tos_path="tos://test-short-drama/output/running-test-002",
+                status="running",
+            )
+            session.add(job)
+            await session.commit()
+
+        # Job is running, not failed -> retry should 400
+        resp = await client.post(f"/api/video-jobs/{job_id}/retry", headers=headers)
+        assert resp.status_code == 400
+        assert "失败" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_migrations_idempotent_preserves_existing_data(tmp_path, monkeypatch):
     """Re-running create_app must keep existing scripts/cleaned rows untouched and seed prompt only once."""
     base_env(monkeypatch, tmp_path)
     app = load_create_app()()

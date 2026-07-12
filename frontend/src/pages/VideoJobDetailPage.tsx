@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Download, Loader2, RefreshCw, XCircle } from "lucide-react";
-import { getModels, getScriptDownloadUrl, getVideoJob, startTranslation } from "@/api/client";
+import { CheckCircle2, Download, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
+import { getModels, getScriptDownloadUrl, getVideoJob, retryVideoJob, startTranslation } from "@/api/client";
 import type { ModelOption, VideoJobOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,9 @@ export function VideoJobDetailPage() {
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [translating, setTranslating] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const timer = useRef<number | null>(null);
+  const pollRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     getModels()
@@ -87,12 +89,31 @@ export function VideoJobDetailPage() {
       }
     }
 
+    pollRef.current = poll;
     poll();
     return () => {
       cancelled = true;
       if (timer.current) window.clearTimeout(timer.current);
     };
   }, [jobId]);
+
+  async function handleRetry() {
+    if (!job) return;
+    setRetrying(true);
+    try {
+      const updated = await retryVideoJob(job.id);
+      setJob(updated);
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => {
+        void pollRef.current?.();
+      }, 1000);
+      toast.success("已重新提交，正在生成");
+    } catch {
+      toast.error("重试失败");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function handleStartTranslation() {
     if (!job?.generated_script_id || !provider || !model) return;
@@ -257,11 +278,16 @@ export function VideoJobDetailPage() {
             <p className="text-sm text-destructive">
               生成失败：{job.error_message ?? "未知错误"}
             </p>
-            <p className="text-xs text-muted-foreground">
-              如需重新尝试，请回到「视频还原剧本」重新提交。
-            </p>
-            <div>
-              <Button variant="secondary" onClick={() => navigate("/video-restore")}>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={handleRetry} disabled={retrying}>
+                {retrying ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                )}
+                重试
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/video-restore")}>
                 返回上传页
               </Button>
             </div>
