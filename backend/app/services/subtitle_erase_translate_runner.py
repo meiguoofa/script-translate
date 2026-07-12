@@ -115,6 +115,16 @@ async def _load_snapshot(db: Database, job_id: str) -> dict | None:
 
 _persist_locks: dict[str, asyncio.Lock] = {}
 
+_global_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore(settings: Settings) -> asyncio.Semaphore:
+    """惰性初始化的全局 semaphore。模块加载时不创建(此时可能没有 event loop)。"""
+    global _global_semaphore
+    if _global_semaphore is None:
+        _global_semaphore = asyncio.Semaphore(settings.max_concurrent_subtitle_erase_jobs)
+    return _global_semaphore
+
 
 def _get_persist_lock(job_id: str) -> asyncio.Lock:
     lock = _persist_locks.get(job_id)
@@ -916,59 +926,61 @@ async def run_subtitle_erase_translate_job(
         logger.warning("subtitle-erase job %s 不存在，跳过", job_id)
         return
 
-    try:
-        oss = AliyunOSSClient(settings)
-    except RuntimeError as exc:
+    sem = _get_semaphore(settings)
+    async with sem:
+        try:
+            oss = AliyunOSSClient(settings)
+        except RuntimeError as exc:
+            await _set_job_fields(
+                db, job_id, status="failed", error_message=str(exc),
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+
+        rate_limiter = RateLimiter(snapshot["qps"])
+        ims = IMSClient(settings, rate_limiter=rate_limiter)
+
+        items: list[dict] = snapshot["items"]
+        indices = only_indices if only_indices is not None else list(range(len(items)))
+        if not indices:
+            logger.warning("subtitle-erase job %s 无可处理的 item", job_id)
+            return
+
+        # 按剧分组（保持每剧内 episode 顺序）
+        dramas: dict[int, list[int]] = defaultdict(list)
+        for idx in indices:
+            dramas[items[idx].get("drama_index", 0)].append(idx)
+
         await _set_job_fields(
-            db, job_id, status="failed", error_message=str(exc),
+            db, job_id, status="running",
+            progress_message=f"开始处理 {len(dramas)} 部剧 / {len(indices)} 集",
+            submitted_at=datetime.now(timezone.utc),
+        )
+
+        async def _run_drama(drama_index: int, episode_indices: list[int]) -> None:
+            # 同一剧内 episode 并发处理；多剧之间也并行（受 RateLimiter 限流）
+            await asyncio.gather(
+                *(_run_episode(db, job_id, ims, oss, registry, settings, snapshot, items, ep_idx)
+                  for ep_idx in episode_indices)
+            )
+
+        try:
+            await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("run_subtitle_erase_translate_job %s top-level error", job_id)
+            await _set_job_fields(
+                db, job_id, status="failed",
+                error_message=f"未捕获异常: {exc}"[:1000],
+                progress_message="任务异常终止",
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+
+        succeeded = sum(1 for it in items if it.get("status") == "succeeded")
+        failed = sum(1 for it in items if it.get("status") == "failed")
+        overall = "completed" if succeeded > 0 else "failed"
+        await _set_job_fields(
+            db, job_id, status=overall,
+            progress_message=f"成功 {succeeded}/{len(items)}，失败 {failed}",
             completed_at=datetime.now(timezone.utc),
         )
-        return
-
-    rate_limiter = RateLimiter(snapshot["qps"])
-    ims = IMSClient(settings, rate_limiter=rate_limiter)
-
-    items: list[dict] = snapshot["items"]
-    indices = only_indices if only_indices is not None else list(range(len(items)))
-    if not indices:
-        logger.warning("subtitle-erase job %s 无可处理的 item", job_id)
-        return
-
-    # 按剧分组（保持每剧内 episode 顺序）
-    dramas: dict[int, list[int]] = defaultdict(list)
-    for idx in indices:
-        dramas[items[idx].get("drama_index", 0)].append(idx)
-
-    await _set_job_fields(
-        db, job_id, status="running",
-        progress_message=f"开始处理 {len(dramas)} 部剧 / {len(indices)} 集",
-        submitted_at=datetime.now(timezone.utc),
-    )
-
-    async def _run_drama(drama_index: int, episode_indices: list[int]) -> None:
-        # 同一剧内 episode 并发处理；多剧之间也并行（受 RateLimiter 限流）
-        await asyncio.gather(
-            *(_run_episode(db, job_id, ims, oss, registry, settings, snapshot, items, ep_idx)
-              for ep_idx in episode_indices)
-        )
-
-    try:
-        await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("run_subtitle_erase_translate_job %s top-level error", job_id)
-        await _set_job_fields(
-            db, job_id, status="failed",
-            error_message=f"未捕获异常: {exc}"[:1000],
-            progress_message="任务异常终止",
-            completed_at=datetime.now(timezone.utc),
-        )
-        return
-
-    succeeded = sum(1 for it in items if it.get("status") == "succeeded")
-    failed = sum(1 for it in items if it.get("status") == "failed")
-    overall = "completed" if succeeded > 0 else "failed"
-    await _set_job_fields(
-        db, job_id, status=overall,
-        progress_message=f"成功 {succeeded}/{len(items)}，失败 {failed}",
-        completed_at=datetime.now(timezone.utc),
-    )

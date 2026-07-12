@@ -41,6 +41,7 @@ def _register_pragma_listener(engine: AsyncEngine, database_url: str) -> None:
         try:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.execute("PRAGMA cache_size=-65536")
             cursor.execute("PRAGMA mmap_size=268435456")
             cursor.execute("PRAGMA temp_store=MEMORY")
@@ -79,7 +80,14 @@ def _backup_sqlite_file(database_url: str) -> None:
 class Database:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
-        self.engine: AsyncEngine = create_async_engine(database_url, future=True)
+        self.engine: AsyncEngine = create_async_engine(
+            database_url,
+            future=True,
+            pool_size=20,
+            max_overflow=30,
+            pool_timeout=60,
+            pool_recycle=1800,
+        )
         _register_pragma_listener(self.engine, database_url)
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False, class_=AsyncSession)
         self._initialized = False

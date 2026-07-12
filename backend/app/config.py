@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     ims_poll_interval_seconds: int = 10
     ims_poll_timeout_seconds: int = 10800
     ims_default_qps: int = 30
+    # 字幕擦除 job 级全局并发上限。同时最多 N 个 job 真正运行,其余排队
+    # (SQLite 单写锁下,N 越大争抢越严重;配合 Aliyun IMS RateLimiter qps=30,N=3 足够)
+    max_concurrent_subtitle_erase_jobs: int = 3
     oss_subtitle_erase_input_prefix: str = "subtitle-erase-input"
     oss_subtitle_erase_output_prefix: str = "subtitle-erase-output"
 
