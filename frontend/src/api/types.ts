@@ -372,6 +372,7 @@ export type SubtitleEraseItemStatus =
 
 export type SubtitleEraseTranslationItemOut = {
   translated_srt_oss_uri: string | null;
+  translated_srt_public_url: string | null;
   output_video_oss_uri: string | null;
   output_public_url: string | null;
   translation_job_id: string | null;
@@ -399,7 +400,9 @@ export type SubtitleEraseJobItemOut = {
   caption_job_id: string | null;
   caption_status: string | null;
   source_srt_oss_uri: string | null;
+  source_srt_public_url: string | null;
   cleaned_srt_oss_uri: string | null;
+  cleaned_srt_public_url: string | null;
   detext_job_id: string | null;
   detext_status: string | null;
   clean_video_oss_uri: string | null;

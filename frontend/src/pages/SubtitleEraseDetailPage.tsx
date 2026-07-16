@@ -24,6 +24,7 @@ import type {
   ModelOption,
   SubtitleEraseItemStage,
   SubtitleEraseItemStatus,
+  SubtitleEraseJobItemOut,
   SubtitleEraseJobOut,
   SubtitleEraseRerunRequest,
 } from "@/api/types";
@@ -84,6 +85,23 @@ const TARGET_LANG_LABELS: Record<string, string> = {
   pt: "葡萄牙语",
 };
 
+type DownloadResourceType =
+  | "original"
+  | "erased"
+  | "source-srt"
+  | "cleaned-srt"
+  | "translated-srt"
+  | "output-video";
+
+type DownloadOption = {
+  key: DownloadResourceType;
+  label: string;
+  /** 单文件下载的 URL(单视频菜单用)。批量菜单留空。 */
+  href?: string | null;
+  /** 批量下载回调(整任务菜单用)。单视频菜单留空。 */
+  onBatch?: () => void;
+};
+
 function formatDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "--";
   const total = Math.floor(seconds);
@@ -92,6 +110,143 @@ function formatDuration(seconds: number | null | undefined): string {
   const s = total % 60;
   if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** 拼接下载文件名: `d{di+1}-e{ei+1}-{stem}{suffix}.{ext}`。 */
+function buildDownloadFilename(
+  item: SubtitleEraseJobItemOut,
+  type: DownloadResourceType,
+  lang: string,
+): string {
+  const prefix = `d${item.drama_index + 1}-e${item.episode_index + 1}`;
+  const filename = item.filename || "video";
+  const dotIdx = filename.lastIndexOf(".");
+  const stem = dotIdx >= 0 ? filename.substring(0, dotIdx) : filename;
+  const ext = dotIdx >= 0 ? filename.substring(dotIdx + 1).toLowerCase() : "";
+  switch (type) {
+    case "original":
+      return `${prefix}-${filename}`;
+    case "erased":
+      return `${prefix}-${stem}-erased.${ext || "mp4"}`;
+    case "source-srt":
+      return `${prefix}-${stem}-source.srt`;
+    case "cleaned-srt":
+      return `${prefix}-${stem}-cleaned.srt`;
+    case "translated-srt":
+      return `${prefix}-${stem}-${lang}.srt`;
+    case "output-video":
+      return `${prefix}-${stem}-${lang}.${ext || "mp4"}`;
+  }
+}
+
+/** 取 item 在指定语言下某类资源的下载 URL;资源不存在返回 null。 */
+function getItemResourceUrl(
+  item: SubtitleEraseJobItemOut,
+  type: DownloadResourceType,
+  lang: string,
+): string | null {
+  switch (type) {
+    case "original":
+      return item.input_public_url || null;
+    case "erased":
+      return item.clean_video_public_url || null;
+    case "source-srt":
+      return item.source_srt_public_url || null;
+    case "cleaned-srt":
+      return item.cleaned_srt_public_url || null;
+    case "translated-srt": {
+      const t = item.translations?.[lang];
+      return t?.translated_srt_public_url || null;
+    }
+    case "output-video": {
+      const t = item.translations?.[lang];
+      if (!t) return null;
+      return (
+        t.output_video_bj_tos_public_url ||
+        t.output_video_tos_public_url ||
+        t.output_public_url ||
+        null
+      );
+    }
+  }
+}
+
+function triggerBrowserDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/** 下载下拉菜单。单视频菜单用 href,整任务菜单用 onBatch。 */
+function DownloadMenu({
+  trigger,
+  options,
+  align = "right",
+}: {
+  trigger: React.ReactNode;
+  options: DownloadOption[];
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  const visible = options.filter((o) => o.href || o.onBatch);
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
+        {trigger}
+        <ChevronDown className="ml-1 h-3 w-3" />
+      </Button>
+      {open ? (
+        <div
+          className={
+            "absolute top-full z-20 mt-1 min-w-[180px] rounded-md border bg-background shadow-md " +
+            (align === "right" ? "right-0" : "left-0")
+          }
+        >
+          {visible.map((o) => (
+            <a
+              key={o.key}
+              href={o.href || undefined}
+              onClick={(e) => {
+                if (o.onBatch) {
+                  e.preventDefault();
+                  o.onBatch();
+                  setOpen(false);
+                } else {
+                  setOpen(false);
+                }
+              }}
+              download={o.href ? true : undefined}
+              target={o.href ? "_blank" : undefined}
+              rel={o.href ? "noopener noreferrer" : undefined}
+              className="block cursor-pointer px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              {o.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function SubtitleEraseDetailPage() {
@@ -225,11 +380,8 @@ export function SubtitleEraseDetailPage() {
   const isTerminal = job.status === "completed" || job.status === "failed";
   const effectiveLang = activeLang || job.target_langs[0] || "";
   // 优先北京 TOS（国内用户快）→ 新加坡 TOS（服务器内网上传的）→ 阿里云 OSS（IMS 烧录）
-  const downloadUrl = (it: typeof job.items[number]) => {
-    const t = it.translations?.[effectiveLang];
-    if (!t) return null;
-    return t.output_video_bj_tos_public_url || t.output_video_tos_public_url || t.output_public_url;
-  };
+  const downloadUrl = (it: typeof job.items[number]) =>
+    getItemResourceUrl(it, "output-video", effectiveLang);
   const succeededItems = job.items.filter(
     (it) => it.status === "succeeded" && downloadUrl(it)
   );
@@ -242,19 +394,31 @@ export function SubtitleEraseDetailPage() {
     byDrama.get(di)!.push(item);
   }
 
-  async function downloadAll() {
-    for (const item of succeededItems) {
-      const url = downloadUrl(item);
-      if (!url) continue;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `d${item.drama_index + 1}-e${item.episode_index + 1}-${item.filename}`;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+  async function downloadAllByType(type: DownloadResourceType) {
+    // 成品视频沿用 succeededItems(必须有成品 URL);其他类型对所有 succeeded items 尝试,
+    // 缺 URL 的跳过。原视频对失败/未完成的 item 也允许下载(用户可能想取回原文件)。
+    const candidates =
+      type === "original"
+        ? job!.items
+        : job!.items.filter((it) => it.status === "succeeded");
+    let triggered = 0;
+    let skipped = 0;
+    for (const item of candidates) {
+      const url = getItemResourceUrl(item, type, effectiveLang);
+      if (!url) {
+        skipped++;
+        continue;
+      }
+      triggerBrowserDownload(url, buildDownloadFilename(item, type, effectiveLang));
+      triggered++;
       await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+    if (triggered === 0) {
+      toast.error("没有可下载的资源");
+    } else if (skipped > 0) {
+      toast.success(`已触发 ${triggered} 个下载,${skipped} 个资源缺失已跳过`);
+    } else {
+      toast.success(`已触发 ${triggered} 个下载`);
     }
   }
 
@@ -413,10 +577,22 @@ export function SubtitleEraseDetailPage() {
             </Button>
           ) : null}
           {succeededItems.length > 1 ? (
-            <Button size="sm" variant="secondary" onClick={downloadAll}>
-              <DownloadCloud className="mr-1 h-4 w-4" />
-              下载全部（{succeededItems.length}）
-            </Button>
+            <DownloadMenu
+              trigger={
+                <>
+                  <DownloadCloud className="mr-1 h-4 w-4" />
+                  下载全部（{succeededItems.length}）
+                </>
+              }
+              options={[
+                { key: "original", label: "全部原视频", onBatch: () => downloadAllByType("original") },
+                { key: "erased", label: "全部擦除视频", onBatch: () => downloadAllByType("erased") },
+                { key: "source-srt", label: "全部源字幕 (source.srt)", onBatch: () => downloadAllByType("source-srt") },
+                { key: "cleaned-srt", label: "全部清洗字幕 (clean.srt)", onBatch: () => downloadAllByType("cleaned-srt") },
+                { key: "translated-srt", label: `全部翻译字幕 (${effectiveLang}.srt)`, onBatch: () => downloadAllByType("translated-srt") },
+                { key: "output-video", label: "全部成品视频", onBatch: () => downloadAllByType("output-video") },
+              ]}
+            />
           ) : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
@@ -758,19 +934,46 @@ export function SubtitleEraseDetailPage() {
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {downloadUrl(item) ? (
-                        <a
-                          href={downloadUrl(item)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          download
-                        >
-                          <Button size="sm" variant="ghost">
+                      <DownloadMenu
+                        trigger={
+                          <>
                             <Download className="mr-1 h-4 w-4" />
                             下载
-                          </Button>
-                        </a>
-                      ) : null}
+                          </>
+                        }
+                        options={[
+                          {
+                            key: "original",
+                            label: "原视频",
+                            href: getItemResourceUrl(item, "original", effectiveLang),
+                          },
+                          {
+                            key: "erased",
+                            label: "擦除视频",
+                            href: getItemResourceUrl(item, "erased", effectiveLang),
+                          },
+                          {
+                            key: "source-srt",
+                            label: "源字幕 (source.srt)",
+                            href: getItemResourceUrl(item, "source-srt", effectiveLang),
+                          },
+                          {
+                            key: "cleaned-srt",
+                            label: "清洗字幕 (clean.srt)",
+                            href: getItemResourceUrl(item, "cleaned-srt", effectiveLang),
+                          },
+                          {
+                            key: "translated-srt",
+                            label: `翻译字幕 (${effectiveLang}.srt)`,
+                            href: getItemResourceUrl(item, "translated-srt", effectiveLang),
+                          },
+                          {
+                            key: "output-video",
+                            label: "成品视频",
+                            href: downloadUrl(item),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
                 );

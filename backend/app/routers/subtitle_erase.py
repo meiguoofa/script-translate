@@ -2,6 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -44,6 +45,25 @@ def _safe_filename(name: str) -> str:
     return _SAFE_NAME.sub("_", base)
 
 
+def _oss_uri_to_public_url(oss_uri: str | None, settings) -> str | None:
+    """`oss://bucket/key` -> 公开可读的 HTTPS URL。
+
+    字幕擦除输出 bucket 已配置公开读取(与 clean_video_public_url 同前缀),
+    因此 SRT 等产物可直接构造 public URL 供前端下载,无需 presigned GET。
+    """
+
+    if not oss_uri or not oss_uri.startswith("oss://"):
+        return None
+    try:
+        _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
+    except ValueError:
+        return None
+    if not key:
+        return None
+    encoded = "/".join(quote(p, safe="") for p in key.split("/"))
+    return f"https://{settings.aliyun_oss_bucket}.{settings.aliyun_oss_endpoint}/{encoded}"
+
+
 def _items_counts(items: list[dict]) -> tuple[int, int]:
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")
@@ -80,7 +100,7 @@ def _parse_target_langs_for_out(job: VideoSubtitleEraseJob) -> list[str]:
     return []
 
 
-def _item_translations_to_out(translations: dict | None) -> dict[str, dict]:
+def _item_translations_to_out(translations: dict | None, settings) -> dict[str, dict]:
     """items_json 内 translations 嵌套 -> SubtitleEraseTranslationItemOut 兼容 dict。"""
     if not isinstance(translations, dict):
         return {}
@@ -90,6 +110,9 @@ def _item_translations_to_out(translations: dict | None) -> dict[str, dict]:
             continue
         out[lang] = {
             "translated_srt_oss_uri": t.get("translated_srt_oss_uri"),
+            "translated_srt_public_url": _oss_uri_to_public_url(
+                t.get("translated_srt_oss_uri"), settings
+            ),
             "output_video_oss_uri": t.get("output_video_oss_uri"),
             "output_public_url": t.get("output_public_url"),
             "translation_job_id": t.get("translation_job_id"),
@@ -108,7 +131,7 @@ def _item_translations_to_out(translations: dict | None) -> dict[str, dict]:
     return out
 
 
-def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
+def _job_to_out(job: VideoSubtitleEraseJob, settings) -> SubtitleEraseJobOut:
     try:
         items = json.loads(job.items_json or "[]")
     except Exception:
@@ -134,13 +157,19 @@ def _job_to_out(job: VideoSubtitleEraseJob) -> SubtitleEraseJobOut:
                 caption_job_id=it.get("caption_job_id"),
                 caption_status=it.get("caption_status"),
                 source_srt_oss_uri=it.get("source_srt_oss_uri"),
+                source_srt_public_url=_oss_uri_to_public_url(
+                    it.get("source_srt_oss_uri"), settings
+                ),
                 cleaned_srt_oss_uri=it.get("cleaned_srt_oss_uri"),
+                cleaned_srt_public_url=_oss_uri_to_public_url(
+                    it.get("cleaned_srt_oss_uri"), settings
+                ),
                 detext_job_id=it.get("detext_job_id"),
                 detext_status=it.get("detext_status"),
                 clean_video_oss_uri=it.get("clean_video_oss_uri"),
                 clean_video_public_url=it.get("clean_video_public_url"),
                 warning=it.get("warning"),
-                translations=_item_translations_to_out(it.get("translations")),
+                translations=_item_translations_to_out(it.get("translations"), settings),
                 duration_seconds=it.get("duration_seconds"),
                 stage=it.get("stage", "pending"),
                 status=it.get("status", "pending"),
@@ -507,7 +536,7 @@ async def create_subtitle_erase_job(
         await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
 
     background_tasks.add_task(_runner)
-    return _job_to_out(job)
+    return _job_to_out(job, settings)
 
 
 # ===== 表单参数持久化（服务器端，不依赖浏览器 localStorage） =====
@@ -560,12 +589,14 @@ async def save_subtitle_erase_settings(
 
 @router.get("/{job_id}", response_model=SubtitleEraseJobOut)
 async def get_subtitle_erase_job(
-    job_id: str, session: AsyncSession = Depends(get_session)
+    job_id: str,
+    session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
 ) -> SubtitleEraseJobOut:
     job = await session.get(VideoSubtitleEraseJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="任务不存在")
-    return _job_to_out(job)
+    return _job_to_out(job, settings)
 
 
 @router.post(
@@ -576,6 +607,7 @@ async def get_subtitle_erase_job(
 async def stop_running_job(
     job_id: str,
     session: AsyncSession = Depends(get_session),
+    settings=Depends(get_settings),
 ) -> SubtitleEraseJobOut:
     """强制停止 running 状态的任务，标记为 failed 后可调 /retry 重试。"""
     job = await session.get(VideoSubtitleEraseJob, job_id)
@@ -603,7 +635,7 @@ async def stop_running_job(
     job.items_json = json.dumps(items, ensure_ascii=False)
     await session.commit()
     await session.refresh(job)
-    return _job_to_out(job)
+    return _job_to_out(job, settings)
 
 
 @router.post(
@@ -659,7 +691,7 @@ async def retry_failed_items(
         )
 
     background_tasks.add_task(_runner)
-    return _job_to_out(job)
+    return _job_to_out(job, settings)
 
 
 @router.post(
@@ -764,7 +796,7 @@ async def rerun_all_items(
         await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
 
     background_tasks.add_task(_runner)
-    return _job_to_out(job)
+    return _job_to_out(job, settings)
 
 
 @router.get("", response_model=list[SubtitleEraseJobSummary])

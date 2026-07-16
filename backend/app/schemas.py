@@ -587,6 +587,7 @@ class SubtitleEraseTranslationItemOut(BaseModel):
     """单语言的翻译+烧录产物。"""
 
     translated_srt_oss_uri: str | None = None
+    translated_srt_public_url: str | None = None
     output_video_oss_uri: str | None = None
     output_public_url: str | None = None
     translation_job_id: str | None = None
@@ -615,7 +616,9 @@ class SubtitleEraseJobItemOut(BaseModel):
     caption_job_id: str | None
     caption_status: str | None
     source_srt_oss_uri: str | None
+    source_srt_public_url: str | None = None
     cleaned_srt_oss_uri: str | None
+    cleaned_srt_public_url: str | None = None
 
     detext_job_id: str | None
     detext_status: str | None
