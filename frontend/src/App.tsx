@@ -13,6 +13,9 @@ import { SubtitleDetailPage } from "./pages/SubtitleDetailPage";
 import { SubtitleEraseDetailPage } from "./pages/SubtitleEraseDetailPage";
 import { SubtitleEraseHistoryPage } from "./pages/SubtitleEraseHistoryPage";
 import { SubtitleErasePage } from "./pages/SubtitleErasePage";
+import { BaiduVodPage } from "./pages/BaiduVodPage";
+import { BaiduVodDetailPage } from "./pages/BaiduVodDetailPage";
+import { BaiduVodHistoryPage } from "./pages/BaiduVodHistoryPage";
 import { SubtitleHistoryPage } from "./pages/SubtitleHistoryPage";
 import { SubtitlePage } from "./pages/SubtitlePage";
 import { UploadPage } from "./pages/UploadPage";
@@ -39,6 +42,9 @@ export default function App() {
           <Route path="/subtitle-erase" element={<SubtitleErasePage />} />
           <Route path="/subtitle-erase/history" element={<SubtitleEraseHistoryPage />} />
           <Route path="/subtitle-erase/:jobId" element={<SubtitleEraseDetailPage />} />
+          <Route path="/baidu-vod" element={<BaiduVodPage />} />
+          <Route path="/baidu-vod/history" element={<BaiduVodHistoryPage />} />
+          <Route path="/baidu-vod/:jobId" element={<BaiduVodDetailPage />} />
           <Route path="/prompts" element={<PromptTemplatesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/scripts/:scriptId" element={<ScriptViewerPage />} />

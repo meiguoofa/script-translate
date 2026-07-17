@@ -1,9 +1,8 @@
 import re
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 class Settings(BaseSettings):
     app_name: str = "Script Translate"
@@ -89,6 +88,27 @@ class Settings(BaseSettings):
     aliyun_mps_endpoint: str = "mts.cn-shanghai.aliyuncs.com"
     aliyun_mps_pipeline_id: str = ""
     aliyun_mps_template_id: str = "d0fa510039bc4081846bc985e4fe0afe"  # 自建 H264 模板，保留原视频分辨率
+
+    # 百度云 VOD + BOS（视频翻译:字幕擦除 + 翻译 + 语音翻译）
+    baidu_access_key_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("BAIDU_ACCESS_KEY_ID", "BAIDUYUN_ACCESS_ID"),
+    )
+    baidu_access_key_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("BAIDU_ACCESS_KEY_SECRET", "BAIDUYUN_SECRET_KEY"),
+    )
+    baidu_bos_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("BAIDU_BOS_BUCKET", "BAIDU_YUN_BOS"),
+    )
+    baidu_vod_endpoint: str = "vod.bj.baidubce.com"
+    baidu_bos_endpoint: str = "bj.bcebos.com"
+    baidu_bos_region: str = "bj"
+    baidu_vod_input_prefix: str = "baidu-vod-input"
+    baidu_vod_poll_interval_seconds: int = 30
+    baidu_vod_poll_timeout_seconds: int = 10800
+    max_concurrent_baidu_vod_jobs: int = 3
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

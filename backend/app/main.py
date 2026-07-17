@@ -17,6 +17,7 @@ from app.services.migrate_items import migrate_items_to_translations
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 from app.routers import (
     access,
+    baidu_vod,
     cleaned_scripts,
     downloads,
     health,
@@ -130,4 +131,5 @@ def create_app() -> FastAPI:
     app.include_router(video_super_resolution.router, prefix=settings.api_prefix)
     app.include_router(video_subtitle.router, prefix=settings.api_prefix)
     app.include_router(subtitle_erase.router, prefix=settings.api_prefix)
+    app.include_router(baidu_vod.router, prefix=settings.api_prefix)
     return app

@@ -545,3 +545,199 @@ export type SubtitleEraseRerunRequest = {
   force_redetext?: boolean;
   force_recaption?: boolean;
 };
+
+
+// ===== 百度云 VOD 视频翻译(字幕擦除 + 翻译 + 语音翻译)=====
+
+export type BaiduVodUploadEntry = {
+  filename: string;
+  presigned_url: string;
+  public_url: string;
+  bos_uri: string;
+  key: string;
+};
+
+export type BaiduVodUploadUrlResponse = {
+  job_id: string;
+  expires_in: number;
+  entries: BaiduVodUploadEntry[];
+};
+
+export type BaiduVodMultipartPartInfo = {
+  part_number: number;
+  offset: number;
+  size: number;
+  presigned_url: string;
+};
+
+export type BaiduVodMultipartUploadUrlResponse = {
+  job_id: string;
+  upload_id: string;
+  key: string;
+  bos_uri: string;
+  public_url: string;
+  part_size: number;
+  parts: BaiduVodMultipartPartInfo[];
+  expires_in: number;
+};
+
+export type BaiduVodCompletePart = {
+  part_number: number;
+  etag: string;
+};
+
+export type BaiduVodCompleteMultipartInput = {
+  job_id: string;
+  key: string;
+  upload_id: string;
+  parts: BaiduVodCompletePart[];
+};
+
+export type BaiduVodCompleteMultipartResponse = {
+  public_url: string;
+  bos_uri: string;
+};
+
+export type BaiduVodJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  key?: string | null;
+  drama_index?: number;
+  episode_index?: number;
+};
+
+export type BaiduVodOcrArea = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  start?: number;
+};
+
+export type BaiduVodFontConfig = {
+  family: string;
+  alignment: string;
+  size: number;
+  bold: boolean;
+  color: string;
+  outline_thickness: number;
+  outline_color: string;
+  padding: number;
+};
+
+export type BaiduVodJobCreateInput = {
+  job_id: string;
+  title: string;
+  project_type: "ShortSeries" | "Ecommerce";
+  source_language: string;
+  target_langs: string[];
+  translation_type_list: string[];
+  voice_mode?: string | null;
+  recognition_type: string;
+  text_type_list: string[];
+  target_subtitle_compose: boolean;
+  desubtitle_enabled: boolean;
+  desubtitle_model: string;
+  desubtitle_type: string;
+  ocr_area_list?: BaiduVodOcrArea[] | null;
+  font_config: BaiduVodFontConfig;
+  qps: number;
+  items: BaiduVodJobItemInput[];
+  original_filenames?: string[] | null;
+};
+
+export type BaiduVodRerunRequest = {
+  project_type: "ShortSeries" | "Ecommerce";
+  source_language: string;
+  target_langs: string[];
+  translation_type_list: string[];
+  voice_mode?: string | null;
+  recognition_type: string;
+  text_type_list: string[];
+  target_subtitle_compose: boolean;
+  desubtitle_enabled: boolean;
+  desubtitle_model: string;
+  desubtitle_type: string;
+  ocr_area_list?: BaiduVodOcrArea[] | null;
+  font_config: BaiduVodFontConfig;
+  qps: number;
+  force_reregister?: boolean;
+};
+
+export type BaiduVodTranslationItemOut = {
+  baidu_task_id: string | null;
+  status: string;
+  stage: string;
+  error: string | null;
+  final_video_url: string | null;
+  desubtitle_video_url: string | null;
+  cover_url: string | null;
+  source_srt_url: string | null;
+  target_srt_url: string | null;
+};
+
+export type BaiduVodJobItemOut = {
+  index: number;
+  drama_index: number;
+  episode_index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_public_url: string;
+  input_bos_key: string | null;
+  input_bos_uri: string | null;
+  baidu_media_id: string | null;
+  baidu_upload_task_id: string | null;
+  duration_seconds: number | null;
+  warning: string | null;
+  translations: Record<string, BaiduVodTranslationItemOut>;
+  stage: string;
+  status: string;
+  error: string | null;
+};
+
+export type BaiduVodJobOut = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  baidu_project_id: string | null;
+  project_type: "ShortSeries" | "Ecommerce";
+  source_language: string;
+  target_langs: string[];
+  translation_config: Record<string, unknown>;
+  subtitle_config: Record<string, unknown>;
+  qps: number;
+  items: BaiduVodJobItemOut[];
+  original_filenames: string[] | null;
+  output_bos_prefix: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  registered_count: number;
+  total_duration_seconds: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BaiduVodJobSummary = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  project_type: "ShortSeries" | "Ecommerce";
+  source_language: string;
+  target_langs: string[];
+  status: "pending" | "running" | "completed" | "failed";
+  succeeded_count: number;
+  failed_count: number;
+  registered_count: number;
+  total_duration_seconds: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};

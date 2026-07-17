@@ -14,6 +14,7 @@ dependencies = [
   "alibabacloud-tea-openapi>=0.3.0",
   "alibabacloud-videoenhan20200320>=3.0.0",
   "alibabacloud-videorecog20200320>=3.0.0",
+  "bce-python-sdk>=0.9.0",
   "boto3>=1.34.0",
   "fastapi>=0.115.0",
   "httpx>=0.28.0",

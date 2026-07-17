@@ -19,6 +19,14 @@ import type {
   SubtitleEraseMultipartUploadUrlResponse,
   SubtitleEraseRerunRequest,
   SubtitleEraseUploadUrlResponse,
+  BaiduVodUploadUrlResponse,
+  BaiduVodMultipartUploadUrlResponse,
+  BaiduVodCompleteMultipartInput,
+  BaiduVodCompleteMultipartResponse,
+  BaiduVodJobCreateInput,
+  BaiduVodJobOut,
+  BaiduVodJobSummary,
+  BaiduVodRerunRequest,
   SubtitleJobOut,
   SubtitleJobSummary,
   SubtitleUploadUrlResponse,
@@ -372,5 +380,80 @@ export async function getSubtitleEraseSettings() {
 
 export async function saveSubtitleEraseSettings(params: Record<string, unknown>) {
   const response = await client.put<Record<string, unknown>>("/subtitle-erase/settings", params);
+  return response.data;
+}
+
+
+// ===== 百度云 VOD 视频翻译 =====
+
+export async function requestBaiduVodUploadUrls(payload: {
+  files: { filename: string; content_type: string }[];
+  job_id?: string;
+}) {
+  const response = await client.post<BaiduVodUploadUrlResponse>("/baidu-vod/upload-url", payload);
+  return response.data;
+}
+
+export async function requestBaiduVodMultipartUrls(payload: {
+  filename: string;
+  content_type: string;
+  file_size: number;
+  job_id?: string;
+  index?: number;
+}) {
+  const response = await client.post<BaiduVodMultipartUploadUrlResponse>(
+    "/baidu-vod/upload-multipart-url", payload
+  );
+  return response.data;
+}
+
+export async function completeBaiduVodMultipart(payload: BaiduVodCompleteMultipartInput) {
+  const response = await client.post<BaiduVodCompleteMultipartResponse>(
+    "/baidu-vod/complete-multipart", payload
+  );
+  return response.data;
+}
+
+export async function abortBaiduVodMultipart(key: string, upload_id: string) {
+  await client.post("/baidu-vod/abort-multipart", { key, upload_id });
+}
+
+export async function createBaiduVodJob(payload: BaiduVodJobCreateInput) {
+  const response = await client.post<BaiduVodJobOut>("/baidu-vod", payload);
+  return response.data;
+}
+
+export async function getBaiduVodJob(jobId: string) {
+  const response = await client.get<BaiduVodJobOut>(`/baidu-vod/${jobId}`);
+  return response.data;
+}
+
+export async function retryBaiduVodJob(jobId: string) {
+  const response = await client.post<BaiduVodJobOut>(`/baidu-vod/${jobId}/retry`);
+  return response.data;
+}
+
+export async function rerunAllBaiduVodJob(jobId: string, payload: BaiduVodRerunRequest) {
+  const response = await client.post<BaiduVodJobOut>(`/baidu-vod/${jobId}/rerun-all`, payload);
+  return response.data;
+}
+
+export async function stopBaiduVodJob(jobId: string) {
+  const response = await client.post<BaiduVodJobOut>(`/baidu-vod/${jobId}/stop`);
+  return response.data;
+}
+
+export async function listBaiduVodJobs(params?: { limit?: number; offset?: number }) {
+  const response = await client.get<BaiduVodJobSummary[]>("/baidu-vod", { params });
+  return response.data;
+}
+
+export async function getBaiduVodSettings() {
+  const response = await client.get<Record<string, unknown>>("/baidu-vod/settings");
+  return response.data;
+}
+
+export async function saveBaiduVodSettings(params: Record<string, unknown>) {
+  const response = await client.put<Record<string, unknown>>("/baidu-vod/settings", params);
   return response.data;
 }

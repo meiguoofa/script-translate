@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { Captions, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
+import { Captions, Cloud, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -13,6 +13,8 @@ const NAV_ITEMS = [
   { to: "/subtitle/history", label: "字幕历史", icon: History, end: false },
   { to: "/subtitle-erase", label: "字幕擦除翻译", icon: Eraser, end: true },
   { to: "/subtitle-erase/history", label: "擦除翻译历史", icon: History, end: false },
+  { to: "/baidu-vod", label: "百度VOD翻译", icon: Cloud, end: true },
+  { to: "/baidu-vod/history", label: "百度VOD历史", icon: History, end: false },
   { to: "/prompts", label: "提示词管理", icon: Wand2, end: false },
   { to: "/history", label: "翻译历史", icon: History, end: false },
 ];
@@ -32,6 +34,9 @@ function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/subtitle-erase") return { title: "字幕擦除翻译", subtitle: "提取 → 擦除原字幕 → 翻译 → 烧录译文字幕" };
   if (pathname === "/subtitle-erase/history") return { title: "擦除翻译历史", subtitle: "查看所有字幕擦除翻译任务" };
   if (pathname.startsWith("/subtitle-erase/")) return { title: "擦除翻译任务详情", subtitle: "查看各阶段进度并下载" };
+  if (pathname === "/baidu-vod") return { title: "百度VOD翻译", subtitle: "字幕擦除 + 翻译 + 语音翻译(百度云 VOD)" };
+  if (pathname === "/baidu-vod/history") return { title: "百度VOD历史", subtitle: "查看所有百度VOD翻译任务" };
+  if (pathname.startsWith("/baidu-vod/")) return { title: "百度VOD任务详情", subtitle: "查看翻译进度并下载结果" };
   if (pathname.startsWith("/prompts")) return { title: "提示词管理", subtitle: "维护视频还原使用的提示词" };
   if (pathname.startsWith("/history")) return { title: "翻译历史", subtitle: "查看所有剧本及历史翻译版本" };
   if (pathname.startsWith("/scripts/")) return { title: "剧本详情", subtitle: scriptId ? `脚本 ${scriptId.slice(0, 8)}…` : "" };

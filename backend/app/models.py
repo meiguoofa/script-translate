@@ -266,6 +266,58 @@ class VideoSubtitleEraseJob(Base):
     )
 
 
+class VideoBaiduVodJob(Base):
+    """百度云 VOD 视频翻译任务(字幕擦除 + 翻译 + 语音翻译)。
+
+    基于百度 VOD workflow:Project(短剧容器) -> Media(单集视频) -> Task(一集×一语言)。
+    items_json 嵌套 translations[lang],与 VideoSubtitleEraseJob 结构对齐。
+    """
+
+    __tablename__ = "video_baidu_vod_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    drama_count: Mapped[int] = mapped_column(Integer, default=0)
+    video_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 百度 VOD 项目 ID(一部短剧一个 project)
+    baidu_project_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # 项目类型:ShortSeries 短剧 / Ecommerce 电商
+    project_type: Mapped[str] = mapped_column(String(32), default="ShortSeries")
+
+    # 语言配置
+    source_language: Mapped[str] = mapped_column(String(16))  # 如 zh-CN/en-US
+    target_langs_json: Mapped[str] = mapped_column(String(255), default="[]")  # ["en-US","es-ES"]
+
+    # 翻译配置(translationConfig,JSON blob)
+    # translationTypeList(subtitle/speech)/voiceMode(VOICE_CLONE/AI_DUB)
+    translation_config_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    # 字幕配置(subtitleConfig,JSON blob)
+    # recognitionType(OCR/ASR)/textTypeList/targetSubtitleCompose/desubtitleConfig/ocrConfig/fontConfig
+    subtitle_config_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    # 输入源(阿里云 OSS URL 列表或百度 BOS key,JSON blob)
+    # 每个 item 有 input_oss_uri / input_bos_key / baidu_media_id
+    items_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 百度 BOS 输出前缀(结果落 BOS)
+    output_bos_prefix: Mapped[str] = mapped_column(Text)
+
+    # QPS 限流(百度 API 限流)
+    qps: Mapped[int] = mapped_column(Integer, default=10)
+
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AppSetting(Base):
     """通用 KV 设置表（key-value）。单行存 JSON blob。
 

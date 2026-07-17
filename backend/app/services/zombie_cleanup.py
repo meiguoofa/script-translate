@@ -11,6 +11,7 @@ from app.models import (
     VideoSubtitleEraseJob,
     VideoSubtitleJob,
     VideoSuperResolutionJob,
+    VideoBaiduVodJob,
 )
 
 logger = logging.getLogger("zombie_cleanup")
@@ -34,12 +35,13 @@ async def cleanup_zombie_jobs(db: Database) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=ZOMBIE_TIMEOUT_MINUTES)
     total = 0
 
-    # 4 个 job 表，每张表独立更新
+    # 5 个 job 表，每张表独立更新
     job_models = [
         VideoScriptJob,
         VideoSuperResolutionJob,
         VideoSubtitleJob,
         VideoSubtitleEraseJob,
+        VideoBaiduVodJob,
     ]
 
     async with await db.session() as session:
