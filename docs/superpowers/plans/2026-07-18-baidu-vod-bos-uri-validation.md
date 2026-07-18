@@ -31,7 +31,7 @@ assert item["input_bos_uri"] == "bos://test-bucket/baidu-vod-input/job/00-ep.mp4
 Run:
 
 ```bash
-cd backend && ../.venv/bin/pytest tests/test_baidu_vod.py::test_create_baidu_vod_job_accepts_bos_uri_and_persists_bos_metadata -q
+cd backend && PYTHONPATH=. ../.venv/bin/pytest tests/test_baidu_vod.py::test_create_baidu_vod_job_accepts_bos_uri_and_persists_bos_metadata -q
 ```
 
 Expected: FAIL because the endpoint returns 400 instead of 201.
@@ -70,7 +70,7 @@ Persist BOS metadata while keeping the legacy compatibility field:
 Run:
 
 ```bash
-cd backend && ../.venv/bin/pytest tests/test_baidu_vod.py -q
+cd backend && PYTHONPATH=. ../.venv/bin/pytest tests/test_baidu_vod.py -q
 ```
 
 Expected: both tests pass.
@@ -84,7 +84,7 @@ Expected: both tests pass.
 - [ ] **Step 1: Run the complete backend suite**
 
 ```bash
-cd backend && ../.venv/bin/pytest -q
+cd backend && PYTHONPATH=. ../.venv/bin/pytest -q
 ```
 
 Expected: all tests pass.

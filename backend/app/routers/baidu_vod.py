@@ -331,8 +331,8 @@ async def create_baidu_vod_job(
     if not payload.items:
         raise HTTPException(status_code=400, detail="视频列表不能为空")
     for it in payload.items:
-        if not it.oss_uri.startswith("oss://"):
-            raise HTTPException(status_code=400, detail=f"非法的视频 oss_uri: {it.oss_uri}")
+        if not it.oss_uri.startswith("bos://"):
+            raise HTTPException(status_code=400, detail=f"非法的视频 bos_uri: {it.oss_uri}")
 
     existing = await session.get(VideoBaiduVodJob, payload.job_id)
     if existing is not None:
@@ -353,8 +353,8 @@ async def create_baidu_vod_job(
             "filename": spec.filename,
             "input_oss_uri": spec.oss_uri,
             "input_public_url": spec.public_url,
-            "input_bos_key": None,
-            "input_bos_uri": None,
+            "input_bos_key": spec.key,
+            "input_bos_uri": spec.oss_uri,
             "baidu_media_id": None,
             "baidu_upload_task_id": None,
             "duration_seconds": None,
