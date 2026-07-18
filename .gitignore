@@ -13,3 +13,4 @@ backend/.env
 *.egg-info/
 .DS_Store
 .codex/
+.worktrees/
