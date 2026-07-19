@@ -183,36 +183,51 @@ class BaiduBOSClient:
             raise
 
     def complete_multipart(self, key: str, upload_id: str, parts: list[dict]) -> tuple[str, str]:
-        """完成分片上传。parts: [{part_number, etag}](etag 保留双引号原样回传)。
-
+        """完成分片上传。eTag 必须不带双引号(BOS 返回带引号,complete 时要去掉)。
+        parts: [{part_number, etag}]
         返回 (public_url, bos_uri)。
         """
-        from baidubce.services.bos import model as bos_model
-
-        part_infos = []
-        for p in parts:
-            part_infos.append(
-                bos_model.MultipartUploadPart(
-                    part_number=p["part_number"],
-                    etag=p["etag"].strip('"') if p.get("etag") else p.get("etag"),
-                )
-            )
+        part_list = [
+            {"partNumber": p["part_number"], "eTag": (p.get("etag") or "").strip('"')}
+            for p in parts
+        ]
         self._client.complete_multipart_upload(
             bucket_name=self.bucket_name,
             key=key,
             upload_id=upload_id,
-            multipart_upload=bos_model.MultipartUploadComplete(part_infos),
+            part_list=part_list,
         )
         return self.public_url(key), self.bos_uri(key)
 
     def abort_multipart(self, key: str, upload_id: str) -> None:
-        """幂等 abort。"""
+        """幂等 abort。手写 host 签名。"""
+        import hashlib
+        import hmac
+        import time as _time
+        from datetime import datetime, timezone
+
+        path = f"/{key}"
+        ts = int(_time.time())
+        date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        sign_key_info = f"bce-auth-v1/{self._settings.baidu_access_key_id}/{date_str}/1800"
+        sign_key = hmac.new(
+            self._settings.baidu_access_key_secret.encode(),
+            sign_key_info.encode(), hashlib.sha256,
+        ).hexdigest()
+        canonical_query = f"uploadId={upload_id}"
+        canonical_headers = f"host:{self.bucket_name}.{self.endpoint}"
+        sign_string = f"DELETE\n{path}\n{canonical_query}\n{canonical_headers}"
+        sig = hmac.new(sign_key.encode(), sign_string.encode(), hashlib.sha256).hexdigest()
+        auth = f"{sign_key_info}/host/{sig}"
+        from urllib.parse import quote
+        url = f"https://{self.bucket_name}.{self.endpoint}/{quote(key, safe='/')}?uploadId={upload_id}"
+        import httpx
         try:
-            self._client.abort_multipart_upload(
-                bucket_name=self.bucket_name,
-                key=key,
-                upload_id=upload_id,
-            )
+            httpx.delete(url, headers={
+                "Host": f"{self.bucket_name}.{self.endpoint}",
+                "Authorization": auth,
+                "x-bce-date": date_str,
+            }, timeout=30.0)
         except Exception:  # noqa: BLE001
             pass
 
