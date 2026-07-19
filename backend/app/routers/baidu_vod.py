@@ -24,6 +24,7 @@ from app.schemas import (
     BaiduVodMultipartUploadUrlRequest,
     BaiduVodMultipartUploadUrlResponse,
     BaiduVodRerunRequest,
+    BaiduVodRuntimeLimitsOut,
     BaiduVodUploadEntry,
     BaiduVodUploadUrlRequest,
     BaiduVodUploadUrlResponse,
@@ -403,7 +404,7 @@ async def create_baidu_vod_job(
             if payload.original_filenames else None
         ),
         output_bos_prefix=output_bos_prefix,
-        qps=payload.qps,
+        qps=settings.baidu_vod_global_qps,
         status="pending",
     )
     session.add(job)
@@ -413,7 +414,12 @@ async def create_baidu_vod_job(
     state = request.app.state
 
     async def _runner() -> None:
-        await run_baidu_vod_job(state.db, state.settings, job.id)
+        await run_baidu_vod_job(
+            state.db,
+            state.settings,
+            state.baidu_vod_governor,
+            job.id,
+        )
 
     background_tasks.add_task(_runner)
     return _job_to_out(job)
@@ -438,6 +444,17 @@ async def get_baidu_vod_settings(
         return json.loads(row.value)
     except json.JSONDecodeError:
         return {}
+
+
+@router.get(
+    "/runtime-limits",
+    response_model=BaiduVodRuntimeLimitsOut,
+    dependencies=[Depends(require_passphrase)],
+)
+async def get_baidu_vod_runtime_limits(request: Request) -> BaiduVodRuntimeLimitsOut:
+    return BaiduVodRuntimeLimitsOut(
+        **request.app.state.baidu_vod_governor.runtime_limits
+    )
 
 
 @router.put(
@@ -549,6 +566,7 @@ async def retry_failed_items(
     job.progress_message = "排队中"
     job.error_message = None
     job.completed_at = None
+    job.qps = settings.baidu_vod_global_qps
     await session.commit()
     await session.refresh(job)
 
@@ -556,7 +574,11 @@ async def retry_failed_items(
 
     async def _runner() -> None:
         await run_baidu_vod_job(
-            state.db, state.settings, job.id, only_indices=failed_indices
+            state.db,
+            state.settings,
+            state.baidu_vod_governor,
+            job.id,
+            only_indices=failed_indices,
         )
 
     background_tasks.add_task(_runner)
@@ -605,7 +627,7 @@ async def rerun_all_items(
         }
     job.translation_config_json = json.dumps(translation_config, ensure_ascii=False)
     job.subtitle_config_json = json.dumps(subtitle_config, ensure_ascii=False)
-    job.qps = payload.qps
+    job.qps = settings.baidu_vod_global_qps
 
     # force_reregister=True 时清 media_id(重新 fetch);否则保留
     items: list[dict] = json.loads(job.items_json or "[]")
@@ -644,7 +666,12 @@ async def rerun_all_items(
     state = request.app.state
 
     async def _runner() -> None:
-        await run_baidu_vod_job(state.db, state.settings, job.id)
+        await run_baidu_vod_job(
+            state.db,
+            state.settings,
+            state.baidu_vod_governor,
+            job.id,
+        )
 
     background_tasks.add_task(_runner)
     return _job_to_out(job)

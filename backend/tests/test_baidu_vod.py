@@ -67,6 +67,7 @@ async def test_create_baidu_vod_job_accepts_bos_uri_and_persists_bos_metadata(
             json=job_payload(uri, key),
             headers={"X-Access-Passphrase": "test-pass"},
         )
+    await app.state.db.engine.dispose()
 
     assert response.status_code == 201, response.text
     item = response.json()["items"][0]
@@ -92,6 +93,65 @@ async def test_create_baidu_vod_job_rejects_oss_uri(tmp_path, monkeypatch):
             json=job_payload("oss://legacy-bucket/ep.mp4", "ep.mp4"),
             headers={"X-Access-Passphrase": "test-pass"},
         )
+    await app.state.db.engine.dispose()
 
     assert response.status_code == 400
     assert "bos_uri" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_job_ignores_legacy_qps_and_records_global_limit(
+    tmp_path, monkeypatch
+):
+    base_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("BAIDU_VOD_GLOBAL_QPS", "7")
+    app = load_create_app()()
+
+    async def fake_runner(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.routers.baidu_vod.run_baidu_vod_job", fake_runner)
+    payload = job_payload("bos://test-bucket/ep.mp4", "ep.mp4")
+    payload["qps"] = 99
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/baidu-vod",
+            json=payload,
+            headers={"X-Access-Passphrase": "test-pass"},
+        )
+    await app.state.db.engine.dispose()
+
+    assert response.status_code == 201, response.text
+    assert response.json()["qps"] == 7
+
+
+@pytest.mark.asyncio
+async def test_runtime_limits_endpoint_returns_effective_governor_settings(
+    tmp_path, monkeypatch
+):
+    base_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("BAIDU_VOD_GLOBAL_QPS", "7")
+    monkeypatch.setenv("MAX_CONCURRENT_BAIDU_VOD_JOBS", "2")
+    monkeypatch.setenv("MAX_CONCURRENT_BAIDU_VOD_EPISODES", "4")
+    app = load_create_app()()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        unauthorized = await client.get("/api/baidu-vod/runtime-limits")
+        response = await client.get(
+            "/api/baidu-vod/runtime-limits",
+            headers={"X-Access-Passphrase": "test-pass"},
+        )
+    await app.state.db.engine.dispose()
+
+    assert unauthorized.status_code in (401, 403)
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "global_qps": 7,
+        "max_concurrent_jobs": 2,
+        "max_concurrent_episodes": 4,
+    }

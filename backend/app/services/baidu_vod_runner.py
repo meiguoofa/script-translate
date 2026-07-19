@@ -10,6 +10,7 @@ from app.config import Settings
 from app.db import Database
 from app.models import VideoBaiduVodJob
 from app.services.baidu_vod_client import BaiduVodClient
+from app.services.baidu_vod_governor import BaiduVodGovernor
 from app.services.ffmpeg_burn import probe_video_duration_seconds
 import httpx
 
@@ -17,16 +18,6 @@ logger = logging.getLogger("baidu_vod_runner")
 
 
 _persist_locks: dict[str, asyncio.Lock] = {}
-
-_global_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_semaphore(settings: Settings) -> asyncio.Semaphore:
-    global _global_semaphore
-    if _global_semaphore is None:
-        _global_semaphore = asyncio.Semaphore(settings.max_concurrent_baidu_vod_jobs)
-    return _global_semaphore
-
 
 def _get_persist_lock(job_id: str) -> asyncio.Lock:
     lock = _persist_locks.get(job_id)
@@ -123,19 +114,22 @@ async def _run_episode(
     snapshot: dict,
     items: list[dict],
     index: int,
+    *,
+    governor: BaiduVodGovernor,
 ) -> None:
     """单集流水线:fetch_media(跨语言共享)-> 每语言 submit_translation_tasks -> wait -> 取结果。"""
-    item = items[index]
-    try:
-        await _run_episode_impl(db, job_id, vod, settings, snapshot, items, index)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("_run_episode %s/%d top-level error", job_id, index)
-        item["status"] = "failed"
-        item["error"] = f"未捕获异常: {exc}"[:1000]
+    async with governor.episode_slot():
+        item = items[index]
         try:
-            await _persist_items(db, job_id, items)
-        except Exception:  # noqa: BLE001
-            logger.exception("persist failed after top-level error %s/%d", job_id, index)
+            await _run_episode_impl(db, job_id, vod, settings, snapshot, items, index)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("_run_episode %s/%d top-level error", job_id, index)
+            item["status"] = "failed"
+            item["error"] = f"未捕获异常: {exc}"[:1000]
+            try:
+                await _persist_items(db, job_id, items)
+            except Exception:  # noqa: BLE001
+                logger.exception("persist failed after top-level error %s/%d", job_id, index)
 
 
 async def _run_episode_impl(
@@ -277,6 +271,7 @@ async def _run_episode_impl(
 async def run_baidu_vod_job(
     db: Database,
     settings: Settings,
+    governor: BaiduVodGovernor,
     job_id: str,
     *,
     only_indices: list[int] | None = None,
@@ -287,10 +282,9 @@ async def run_baidu_vod_job(
         logger.warning("baidu-vod job %s 不存在,跳过", job_id)
         return
 
-    sem = _get_semaphore(settings)
-    async with sem:
+    async with governor.job_slot():
         try:
-            vod = BaiduVodClient(settings)
+            vod = BaiduVodClient(settings, governor)
         except RuntimeError as exc:
             await _set_job_fields(
                 db, job_id, status="failed", error_message=str(exc),
@@ -337,8 +331,19 @@ async def run_baidu_vod_job(
 
         async def _run_drama(drama_index: int, episode_indices: list[int]) -> None:
             await asyncio.gather(
-                *(_run_episode(db, job_id, vod, settings, snapshot, items, ep_idx)
-                  for ep_idx in episode_indices)
+                *(
+                    _run_episode(
+                        db,
+                        job_id,
+                        vod,
+                        settings,
+                        snapshot,
+                        items,
+                        ep_idx,
+                        governor=governor,
+                    )
+                    for ep_idx in episode_indices
+                )
             )
 
         try:

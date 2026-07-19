@@ -836,7 +836,7 @@ class BaiduVodJobCreateRequest(BaseModel):
     ocr_area_list: list[BaiduVodOcrArea] | None = None  # 空=全画面
     font_config: BaiduVodFontConfig = Field(default_factory=BaiduVodFontConfig)
     # 限流
-    qps: int = Field(default=10, ge=1, le=100)
+    qps: int | None = Field(default=None, ge=1, le=100, deprecated=True)
     # 视频列表
     items: list[BaiduVodJobItemSpec]
     original_filenames: list[str] | None = None
@@ -873,7 +873,7 @@ class BaiduVodRerunRequest(BaseModel):
     desubtitle_type: str
     ocr_area_list: list[BaiduVodOcrArea] | None = None
     font_config: BaiduVodFontConfig
-    qps: int = Field(ge=1, le=100)
+    qps: int | None = Field(default=None, ge=1, le=100, deprecated=True)
     force_reregister: bool = False  # 强制重新注册 media(不复用 baidu_media_id)
     force_retranslate: bool = False  # 强制重新提交翻译任务
     target_langs_to_add: list[str] | None = None  # 追加新语言(不影响已有语言产物)
@@ -884,6 +884,12 @@ class BaiduVodRerunRequest(BaseModel):
         if not v:
             raise ValueError("target_langs 必须至少包含一个语言")
         return v
+
+
+class BaiduVodRuntimeLimitsOut(BaseModel):
+    global_qps: int
+    max_concurrent_jobs: int
+    max_concurrent_episodes: int
 
 
 class BaiduVodTranslationItemOut(BaseModel):
