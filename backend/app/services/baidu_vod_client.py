@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -14,8 +15,44 @@ from urllib.parse import quote
 import httpx
 
 from app.config import Settings
+from app.services.baidu_vod_governor import BaiduVodGovernor
 
 logger = logging.getLogger("baidu_vod_client")
+
+_MAX_REQUEST_ATTEMPTS = 4
+_MAX_RETRY_DELAY_SECONDS = 30.0
+
+
+class BaiduVodApiError(RuntimeError):
+    """Structured VOD request failure used by orchestration retry decisions."""
+
+    def __init__(
+        self,
+        *,
+        method: str,
+        path: str,
+        status_code: int | None,
+        detail: str,
+        retryable: bool,
+    ):
+        status = str(status_code) if status_code is not None else "network"
+        super().__init__(f"VOD API {method} {path} failed: {status} {detail}")
+        self.method = method
+        self.path = path
+        self.status_code = status_code
+        self.retryable = retryable
+
+
+def _retry_delay_seconds(attempt: int, retry_after: str | None = None) -> float:
+    if retry_after:
+        try:
+            return min(_MAX_RETRY_DELAY_SECONDS, max(0.0, float(retry_after)))
+        except ValueError:
+            pass
+    return min(
+        _MAX_RETRY_DELAY_SECONDS,
+        float(2 ** (attempt - 1)) + random.uniform(0.0, 0.25),
+    )
 
 
 @dataclass
@@ -65,7 +102,7 @@ class BaiduVodClient:
       authorization = "bce-auth-v1/{AK}/{timestamp}/{expiration}/{signed_headers}/{signature}"
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, governor: BaiduVodGovernor):
         if not settings.baidu_access_key_id or not settings.baidu_access_key_secret:
             raise RuntimeError("BAIDU_ACCESS_KEY_ID / SECRET 未配置")
         self._settings = settings
@@ -73,6 +110,7 @@ class BaiduVodClient:
         self._sk = settings.baidu_access_key_secret
         self._endpoint = settings.baidu_vod_endpoint  # vod.bj.baidubce.com
         self._base_url = f"https://{self._endpoint}"
+        self._governor = governor
 
     def _sign(
         self,
@@ -153,35 +191,105 @@ class BaiduVodClient:
         if body is not None:
             body_bytes = json.dumps(body, ensure_ascii=False).encode("utf-8")
 
-        headers = {
+        base_headers = {
             "Host": self._endpoint,
             "Content-Type": "application/json",
         }
         if body_bytes:
-            headers["Content-Length"] = str(len(body_bytes))
+            base_headers["Content-Length"] = str(len(body_bytes))
 
-        # x-bce-date header(SDK 自动加,我们也加,会参与签名)
-        ts = int(time.time())
-        date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        headers["x-bce-date"] = date_str
+        method = method.upper()
+        for attempt in range(1, _MAX_REQUEST_ATTEMPTS + 1):
+            headers = dict(base_headers)
+            ts = int(time.time())
+            headers["x-bce-date"] = datetime.fromtimestamp(
+                ts, tz=timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            headers["Authorization"] = self._sign(
+                method, path, headers, params or {}, timestamp=ts
+            )
 
-        authorization = self._sign(method, path, headers, params or {})
-        headers["Authorization"] = authorization
+            await self._governor.acquire_request()
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.request(
+                        method, url, headers=headers, content=body_bytes
+                    )
+            except httpx.TransportError as exc:
+                retryable = method == "GET"
+                error = BaiduVodApiError(
+                    method=method,
+                    path=path,
+                    status_code=None,
+                    detail=str(exc)[:500],
+                    retryable=retryable,
+                )
+                if retryable and attempt < _MAX_REQUEST_ATTEMPTS:
+                    delay = _retry_delay_seconds(attempt)
+                    logger.warning(
+                        "VOD API %s %s network error, attempt=%d/%d retry_in=%.2fs",
+                        method,
+                        path,
+                        attempt,
+                        _MAX_REQUEST_ATTEMPTS,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(
+                    "VOD API %s %s network error after attempt=%d/%d",
+                    method,
+                    path,
+                    attempt,
+                    _MAX_REQUEST_ATTEMPTS,
+                )
+                raise error from exc
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.request(method, url, headers=headers, content=body_bytes)
+            if resp.status_code < 400:
+                if not resp.text:
+                    return {}
+                try:
+                    return resp.json()
+                except Exception:
+                    return {"raw_text": resp.text}
 
-        if resp.status_code >= 400:
-            err_text = resp.text[:500]
-            logger.error("VOD API %s %s failed: %s %s", method, path, resp.status_code, err_text)
-            raise RuntimeError(f"VOD API {method} {path} failed: {resp.status_code} {err_text}")
+            retryable = resp.status_code == 429 or (
+                method == "GET" and 500 <= resp.status_code < 600
+            )
+            error = BaiduVodApiError(
+                method=method,
+                path=path,
+                status_code=resp.status_code,
+                detail=resp.text[:500],
+                retryable=retryable,
+            )
+            if retryable and attempt < _MAX_REQUEST_ATTEMPTS:
+                delay = _retry_delay_seconds(
+                    attempt,
+                    resp.headers.get("Retry-After"),
+                )
+                logger.warning(
+                    "VOD API %s %s status=%d attempt=%d/%d retry_in=%.2fs",
+                    method,
+                    path,
+                    resp.status_code,
+                    attempt,
+                    _MAX_REQUEST_ATTEMPTS,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            logger.error(
+                "VOD API %s %s failed: status=%d attempt=%d/%d",
+                method,
+                path,
+                resp.status_code,
+                attempt,
+                _MAX_REQUEST_ATTEMPTS,
+            )
+            raise error
 
-        if not resp.text:
-            return {}
-        try:
-            return resp.json()
-        except Exception:
-            return {"raw_text": resp.text}
+        raise AssertionError("unreachable")
 
     # ===== API 方法 =====
 
@@ -249,6 +357,14 @@ class BaiduVodClient:
                 if status in ("FAILED", "FAIL", "ERROR"):
                     err = result.get("errMsg") or result.get("error") or str(result)
                     raise RuntimeError(f"fetch task {task_id} FAILED: {err}")
+            except BaiduVodApiError as exc:
+                if not exc.retryable:
+                    raise
+                logger.warning(
+                    "query_fetch_task %s 临时失败: %s, retrying",
+                    task_id,
+                    exc,
+                )
             except RuntimeError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -349,6 +465,12 @@ class BaiduVodClient:
                 )
             try:
                 tasks = await self.query_tasks(project_id, task_id=task_id)
+            except BaiduVodApiError as exc:
+                if not exc.retryable:
+                    raise
+                logger.warning("query_tasks %s 临时失败: %s, retrying", task_id, exc)
+                await asyncio.sleep(max(5, poll_interval))
+                continue
             except Exception as exc:  # noqa: BLE001
                 logger.warning("query_tasks %s 出错: %s, retrying", task_id, exc)
                 await asyncio.sleep(max(5, poll_interval))
