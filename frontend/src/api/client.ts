@@ -27,6 +27,7 @@ import type {
   BaiduVodJobOut,
   BaiduVodJobSummary,
   BaiduVodRerunRequest,
+  BaiduVodRuntimeLimits,
   SubtitleJobOut,
   SubtitleJobSummary,
   SubtitleUploadUrlResponse,
@@ -450,6 +451,13 @@ export async function listBaiduVodJobs(params?: { limit?: number; offset?: numbe
 
 export async function getBaiduVodSettings() {
   const response = await client.get<Record<string, unknown>>("/baidu-vod/settings");
+  return response.data;
+}
+
+export async function getBaiduVodRuntimeLimits() {
+  const response = await client.get<BaiduVodRuntimeLimits>(
+    "/baidu-vod/runtime-limits"
+  );
   return response.data;
 }
 

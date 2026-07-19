@@ -642,7 +642,6 @@ export type BaiduVodJobCreateInput = {
   desubtitle_type: string;
   ocr_area_list?: BaiduVodOcrArea[] | null;
   font_config: BaiduVodFontConfig;
-  qps: number;
   items: BaiduVodJobItemInput[];
   original_filenames?: string[] | null;
 };
@@ -661,8 +660,13 @@ export type BaiduVodRerunRequest = {
   desubtitle_type: string;
   ocr_area_list?: BaiduVodOcrArea[] | null;
   font_config: BaiduVodFontConfig;
-  qps: number;
   force_reregister?: boolean;
+};
+
+export type BaiduVodRuntimeLimits = {
+  global_qps: number;
+  max_concurrent_jobs: number;
+  max_concurrent_episodes: number;
 };
 
 export type BaiduVodTranslationItemOut = {

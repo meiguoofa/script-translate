@@ -6,12 +6,17 @@ import {
   abortBaiduVodMultipart,
   completeBaiduVodMultipart,
   createBaiduVodJob,
+  getBaiduVodRuntimeLimits,
   getBaiduVodSettings,
   requestBaiduVodMultipartUrls,
   requestBaiduVodUploadUrls,
   saveBaiduVodSettings,
 } from "@/api/client";
-import type { BaiduVodFontConfig, BaiduVodOcrArea } from "@/api/types";
+import type {
+  BaiduVodFontConfig,
+  BaiduVodOcrArea,
+  BaiduVodRuntimeLimits,
+} from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -195,7 +200,6 @@ type FormParams = {
   outlineThickness: number;
   outlineColor: string;
   fontPadding: number;
-  qps: number;
 };
 
 const DEFAULT_FORM_PARAMS: FormParams = {
@@ -218,7 +222,6 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   outlineThickness: 2,
   outlineColor: "#000000FF",
   fontPadding: 8,
-  qps: 10,
 };
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -237,23 +240,30 @@ export function BaiduVodPage() {
   const [dramas, setDramas] = useState<Drama[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const [runtimeLimits, setRuntimeLimits] = useState<BaiduVodRuntimeLimits | null>(null);
 
   const [p, setP] = useState<FormParams>(DEFAULT_FORM_PARAMS);
   const saveTimerRef = useRef<number | null>(null);
 
   // 加载/保存表单参数
   useEffect(() => {
+    if (!verified) return;
     (async () => {
       try {
         const data = await getBaiduVodSettings();
         if (data && typeof data === "object") {
-          setP((prev) => ({ ...prev, ...(data as Partial<FormParams>) }));
+          const saved = { ...data };
+          delete saved.qps;
+          setP((prev) => ({ ...prev, ...(saved as Partial<FormParams>) }));
         }
       } catch {
         // 静默
       }
     })();
-  }, []);
+    getBaiduVodRuntimeLimits().then(setRuntimeLimits).catch(() => {
+      setRuntimeLimits(null);
+    });
+  }, [verified]);
 
   useEffect(() => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -358,7 +368,6 @@ export function BaiduVodPage() {
         desubtitle_type: p.desubtitleType,
         ocr_area_list: null,
         font_config: fontConfig,
-        qps: p.qps,
         items,
         original_filenames: allFiles.map((f) => f.filename),
       });
@@ -455,9 +464,12 @@ export function BaiduVodPage() {
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>QPS 限流</Label>
-              <Input type="number" value={p.qps} min={1} max={100}
-                onChange={(e) => setP({ ...p, qps: Number(e.target.value) })} />
+              <Label>运行限制</Label>
+              <div className="flex min-h-10 items-center rounded-md border bg-muted/40 px-3 text-sm">
+                {runtimeLimits
+                  ? `全局 ${runtimeLimits.global_qps} QPS · ${runtimeLimits.max_concurrent_jobs} 个 Job · ${runtimeLimits.max_concurrent_episodes} 集`
+                  : "正在读取服务端限制…"}
+              </div>
             </div>
           </div>
 
