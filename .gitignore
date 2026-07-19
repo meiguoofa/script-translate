@@ -8,6 +8,7 @@ backend/.mypy_cache/
 backend/data/
 backend/storage/
 backend/.env
+backend/.env.bak.*
 **/__pycache__/
 *.pyc
 *.egg-info/
