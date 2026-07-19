@@ -9,7 +9,7 @@ class RateLimiter:
 
     - `qps` = 每秒允许的调用数
     - `acquire()` 保证两次调用之间至少 `1/qps` 秒间隔
-    - 限流是 per-instance 的；runner 为每个 job 实例化一份，job 间不互相饿死
+    - 限流范围由实例生命周期决定；共享实例可提供进程级全局限流
     """
 
     def __init__(self, qps: int):
