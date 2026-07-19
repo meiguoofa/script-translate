@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
+from app.services.baidu_vod_governor import BaiduVodGovernor
 from app.services.zombie_cleanup import cleanup_zombie_jobs
 from app.services.migrate_items import migrate_items_to_translations
 
@@ -37,6 +38,7 @@ class ApplicationState:
     settings: Settings
     db: Database
     registry: ProviderRegistry
+    baidu_vod_governor: BaiduVodGovernor
 
 
 _application_state: ApplicationState | None = None
@@ -76,7 +78,13 @@ def create_app() -> FastAPI:
 
     db = Database(settings.database_url)
     registry = ProviderRegistry(settings)
-    _application_state = ApplicationState(settings=settings, db=db, registry=registry)
+    baidu_vod_governor = BaiduVodGovernor(settings)
+    _application_state = ApplicationState(
+        settings=settings,
+        db=db,
+        registry=registry,
+        baidu_vod_governor=baidu_vod_governor,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -111,6 +119,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.db = db
     app.state.registry = registry
+    app.state.baidu_vod_governor = baidu_vod_governor
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

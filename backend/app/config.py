@@ -108,7 +108,9 @@ class Settings(BaseSettings):
     baidu_vod_input_prefix: str = "baidu-vod-input"
     baidu_vod_poll_interval_seconds: int = 30
     baidu_vod_poll_timeout_seconds: int = 10800
-    max_concurrent_baidu_vod_jobs: int = 3
+    baidu_vod_global_qps: int = Field(default=10, ge=1)
+    max_concurrent_baidu_vod_jobs: int = Field(default=3, ge=1)
+    max_concurrent_baidu_vod_episodes: int = Field(default=3, ge=1)
 
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
