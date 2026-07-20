@@ -318,6 +318,60 @@ class VideoBaiduVodJob(Base):
     )
 
 
+class StarlingDramaJob(Base):
+    """火山引擎 Starling 短剧全链路翻配任务。
+
+    流程：VideoProjectCreate -> VideoProjectVideoUpload -> VideoProjectSerialTaskCreate
+        -> VideoProjectTaskBatchStartAIFlow -> VideoEditorSubmitSubtask
+        -> VideoProjectSuppressionStart -> VideoProjectGetTaskProduct -> 归档 OSS
+
+    items_json 嵌套 translations[lang]，结构与 VideoSubtitleEraseJob 对齐。
+    Starling 仅作为异步 AI 处理引擎；幂等、重试、版本、产物全部由本地后端掌握。
+    """
+
+    __tablename__ = "starling_drama_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    drama_name: Mapped[str] = mapped_column(String(255), index=True)
+    source_lang: Mapped[str] = mapped_column(String(16))
+    target_langs_json: Mapped[str] = mapped_column(String(255), default="[]")  # ["en"]
+
+    # Starling 对象引用
+    starling_project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    starling_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # 字幕处理
+    subtitle_removal_mode: Mapped[str] = mapped_column(String(16), default="BASIC")  # NONE/BASIC/ADVANCED
+    burn_target_subtitle: Mapped[bool] = mapped_column(Boolean, default=True)
+    subtitle_style_template: Mapped[str] = mapped_column(String(64), default="white-black-outline-v1")
+
+    # 配音配置
+    dubbing_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    dubbing_speaker_mode: Mapped[str] = mapped_column(String(32), default="AUTO_MULTI_SPEAKER")
+    dubbing_emotion_mode: Mapped[str] = mapped_column(String(16), default="STANDARD")
+    dubbing_preserve_bg_audio: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # 工作流配置
+    workflow_mode: Mapped[str] = mapped_column(String(24), default="FULLY_AUTOMATIC")
+    max_retry_count: Mapped[int] = mapped_column(Integer, default=2)
+
+    # 嵌套子任务（按集 × 目标语言）
+    items_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_oss_prefix: Mapped[str] = mapped_column(Text)
+    output_tos_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AppSetting(Base):
     """通用 KV 设置表（key-value）。单行存 JSON blob。
 

@@ -745,3 +745,167 @@ export type BaiduVodJobSummary = {
   created_at: string;
   updated_at: string;
 };
+
+// ===================== Starling 短剧翻配 =====================
+
+export type StarlingDramaUploadEntry = {
+  filename: string;
+  presigned_url: string;
+  public_url: string;
+  oss_uri: string;
+  key: string;
+};
+
+export type StarlingDramaUploadUrlResponse = {
+  job_id: string;
+  expires_in: number;
+  entries: StarlingDramaUploadEntry[];
+};
+
+export type StarlingDramaMultipartPartInfo = {
+  part_number: number;
+  offset: number;
+  size: number;
+  presigned_url: string;
+};
+
+export type StarlingDramaMultipartUploadUrlResponse = {
+  job_id: string;
+  upload_id: string;
+  key: string;
+  oss_uri: string;
+  public_url: string;
+  part_size: number;
+  parts: StarlingDramaMultipartPartInfo[];
+  expires_in: number;
+};
+
+export type StarlingDramaCompleteMultipartInput = {
+  job_id: string;
+  key: string;
+  upload_id: string;
+  parts: { part_number: number; etag: string }[];
+};
+
+export type StarlingDramaCompleteMultipartResponse = {
+  public_url: string;
+  oss_uri: string;
+};
+
+export type StarlingDramaTranslationOut = {
+  starling_subtask_id: string | null;
+  ai_flow_status: string | null;
+  submit_status: string | null;
+  suppression_status: string | null;
+  products: Record<string, string>;
+  error_message: string | null;
+};
+
+export type StarlingDramaJobItemOut = {
+  drama_index: number;
+  episode_number: number;
+  source_filename: string;
+  source_oss_uri: string;
+  source_video_url: string | null;
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+  starling_video_id: string | null;
+  upload_batch_id: string | null;
+  upload_status: string | null;
+  translations: Record<string, StarlingDramaTranslationOut>;
+  status: string;
+  error: string | null;
+};
+
+export type StarlingDramaJobOut = {
+  id: string;
+  title: string;
+  drama_name: string;
+  source_lang: string;
+  target_langs: string[];
+  starling_project_id: string | null;
+  starling_task_id: string | null;
+  subtitle_removal_mode: "NONE" | "BASIC" | "ADVANCED";
+  burn_target_subtitle: boolean;
+  subtitle_style_template: string;
+  dubbing_enabled: boolean;
+  dubbing_speaker_mode: "AUTO_MULTI_SPEAKER" | "REUSE_DRAMA_SPEAKERS";
+  dubbing_emotion_mode: "STANDARD" | "HIGH_EMOTION";
+  dubbing_preserve_bg_audio: boolean;
+  workflow_mode: "FULLY_AUTOMATIC" | "MANUAL_REVIEW";
+  max_retry_count: number;
+  items: StarlingDramaJobItemOut[];
+  original_filenames: string[] | null;
+  output_oss_prefix: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StarlingDramaJobSummary = {
+  id: string;
+  title: string;
+  drama_name: string;
+  source_lang: string;
+  target_langs: string[];
+  status: "pending" | "running" | "completed" | "failed";
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export type StarlingDramaJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  drama_index: number;
+  episode_index: number;
+};
+
+export type StarlingDramaJobCreateInput = {
+  job_id: string;
+  title: string;
+  drama_name: string;
+  source_lang: string;
+  target_langs: string[];
+  subtitle_removal_mode: "NONE" | "BASIC" | "ADVANCED";
+  burn_target_subtitle: boolean;
+  subtitle_style_template: string;
+  dubbing_enabled: boolean;
+  dubbing_speaker_mode: "AUTO_MULTI_SPEAKER" | "REUSE_DRAMA_SPEAKERS";
+  dubbing_emotion_mode: "STANDARD" | "HIGH_EMOTION";
+  dubbing_preserve_bg_audio: boolean;
+  workflow_mode: "FULLY_AUTOMATIC" | "MANUAL_REVIEW";
+  max_retry_count: number;
+  items: StarlingDramaJobItemInput[];
+  original_filenames?: string[] | null;
+};
+
+export type StarlingDramaRerunRequest = {
+  target_langs?: string[] | null;
+  episode_indexes?: number[] | null;
+};
+
+export type StarlingDramaUploadUrlInput = {
+  files: { filename: string; content_type?: string }[];
+  job_id?: string;
+};
+
+export type StarlingDramaMultipartUploadUrlInput = {
+  filename: string;
+  content_type?: string;
+  file_size: number;
+  job_id?: string;
+  index?: number;
+};

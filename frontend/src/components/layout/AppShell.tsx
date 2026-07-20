@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { Captions, Cloud, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap } from "lucide-react";
+import { Captions, Cloud, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -15,6 +15,8 @@ const NAV_ITEMS = [
   { to: "/subtitle-erase/history", label: "擦除翻译历史", icon: History, end: false },
   { to: "/baidu-vod", label: "百度VOD翻译", icon: Cloud, end: true },
   { to: "/baidu-vod/history", label: "百度VOD历史", icon: History, end: false },
+  { to: "/starling-drama", label: "Starling短剧翻配", icon: Clapperboard, end: true },
+  { to: "/starling-drama/history", label: "Starling历史", icon: History, end: false },
   { to: "/prompts", label: "提示词管理", icon: Wand2, end: false },
   { to: "/history", label: "翻译历史", icon: History, end: false },
 ];
@@ -37,6 +39,9 @@ function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/baidu-vod") return { title: "百度VOD翻译", subtitle: "字幕擦除 + 翻译 + 语音翻译(百度云 VOD)" };
   if (pathname === "/baidu-vod/history") return { title: "百度VOD历史", subtitle: "查看所有百度VOD翻译任务" };
   if (pathname.startsWith("/baidu-vod/")) return { title: "百度VOD任务详情", subtitle: "查看翻译进度并下载结果" };
+  if (pathname === "/starling-drama") return { title: "Starling短剧翻配", subtitle: "火山 Starling 全链路：字幕提取+擦除+翻译+配音+压制" };
+  if (pathname === "/starling-drama/history") return { title: "Starling历史", subtitle: "查看所有 Starling 翻配任务" };
+  if (pathname.startsWith("/starling-drama/")) return { title: "Starling任务详情", subtitle: "查看翻配进度并下载产物" };
   if (pathname.startsWith("/prompts")) return { title: "提示词管理", subtitle: "维护视频还原使用的提示词" };
   if (pathname.startsWith("/history")) return { title: "翻译历史", subtitle: "查看所有剧本及历史翻译版本" };
   if (pathname.startsWith("/scripts/")) return { title: "剧本详情", subtitle: scriptId ? `脚本 ${scriptId.slice(0, 8)}…` : "" };

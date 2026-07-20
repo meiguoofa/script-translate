@@ -16,6 +16,9 @@ import { SubtitleErasePage } from "./pages/SubtitleErasePage";
 import { BaiduVodPage } from "./pages/BaiduVodPage";
 import { BaiduVodDetailPage } from "./pages/BaiduVodDetailPage";
 import { BaiduVodHistoryPage } from "./pages/BaiduVodHistoryPage";
+import { StarlingDramaPage } from "./pages/StarlingDramaPage";
+import { StarlingDramaHistoryPage } from "./pages/StarlingDramaHistoryPage";
+import { StarlingDramaDetailPage } from "./pages/StarlingDramaDetailPage";
 import { SubtitleHistoryPage } from "./pages/SubtitleHistoryPage";
 import { SubtitlePage } from "./pages/SubtitlePage";
 import { UploadPage } from "./pages/UploadPage";
@@ -45,6 +48,9 @@ export default function App() {
           <Route path="/baidu-vod" element={<BaiduVodPage />} />
           <Route path="/baidu-vod/history" element={<BaiduVodHistoryPage />} />
           <Route path="/baidu-vod/:jobId" element={<BaiduVodDetailPage />} />
+          <Route path="/starling-drama" element={<StarlingDramaPage />} />
+          <Route path="/starling-drama/history" element={<StarlingDramaHistoryPage />} />
+          <Route path="/starling-drama/:jobId" element={<StarlingDramaDetailPage />} />
           <Route path="/prompts" element={<PromptTemplatesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/scripts/:scriptId" element={<ScriptViewerPage />} />

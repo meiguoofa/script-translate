@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 
 from app.db import Database
 from app.models import (
+    StarlingDramaJob,
     VideoScriptJob,
     VideoSubtitleEraseJob,
     VideoSubtitleJob,
@@ -35,13 +36,14 @@ async def cleanup_zombie_jobs(db: Database) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=ZOMBIE_TIMEOUT_MINUTES)
     total = 0
 
-    # 5 个 job 表，每张表独立更新
+    # 6 个 job 表，每张表独立更新
     job_models = [
         VideoScriptJob,
         VideoSuperResolutionJob,
         VideoSubtitleJob,
         VideoSubtitleEraseJob,
         VideoBaiduVodJob,
+        StarlingDramaJob,
     ]
 
     async with await db.session() as session:

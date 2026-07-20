@@ -112,6 +112,55 @@ class Settings(BaseSettings):
     max_concurrent_baidu_vod_jobs: int = Field(default=3, ge=1)
     max_concurrent_baidu_vod_episodes: int = Field(default=3, ge=1)
 
+    # 火山引擎 Starling（i18n_openapi）短剧全链路翻配
+    # 凭证与 TOS 共用新火山账号 AK/SK
+    starling_access_key_id: str | None = None
+    starling_secret_access_key: str | None = None
+    starling_account_id: str | None = None  # 火山 AccountID，需从控制台获取
+    starling_region: str = "cn-beijing"
+    starling_host: str = "open.volcengineapi.com"
+    # Starling 专用 TOS 北京桶：xzdl-starling
+    # root 账号 AK/SK 共用 starling_access_key_id/secret_access_key（全权限）
+    tos_starling_bucket: str = "xzdl-starling"
+    tos_starling_region: str = "cn-beijing"
+    tos_starling_s3_internal_endpoint: str = "https://tos-s3-cn-beijing.ivolces.com"
+    tos_starling_s3_public_endpoint: str = "https://tos-s3-cn-beijing.volces.com"
+    tos_starling_public_endpoint: str = "tos-cn-beijing.volces.com"
+    tos_starling_input_prefix: str = "starling-input"
+    tos_starling_output_prefix: str = "starling-output"
+    # int32 枚举值：实现期通过火山 OpenAPI Explorer 抓取后写入 .env
+    # VideoUploadType（VideoProjectVideoUpload）：URL 拉取类型
+    starling_video_upload_type_url: int = 0
+    # OperateType（VideoProjectTaskBatchStartAIFlow）：启动 AI 流程
+    starling_operate_type_start: int = 1
+    # Lang int32 枚举（VideoProjectSuppressionStart）：ISO -> int32 映射
+    starling_lang_en: int = 1
+    starling_lang_es: int = 2
+    starling_lang_pt: int = 3
+    starling_lang_th: int = 4
+    starling_lang_id: int = 5
+    starling_lang_vi: int = 6
+    starling_lang_ms: int = 7
+    starling_lang_ja: int = 8
+    starling_lang_ko: int = 9
+    # SuppressionStart 枚举：布局/编码/容器格式
+    starling_suppress_arrangement: int = 0
+    starling_suppress_encode: int = 0
+    starling_suppress_format: int = 0
+    # 轮询间隔与超时
+    starling_poll_interval_upload_seconds: int = 15
+    starling_poll_interval_ai_seconds: int = 30
+    starling_poll_interval_suppression_seconds: int = 30
+    starling_poll_timeout_seconds: int = 7200
+    # 并发控制
+    starling_max_concurrent_jobs: int = Field(default=3, ge=1)
+    starling_upload_concurrency: int = Field(default=4, ge=1)
+    starling_product_download_concurrency: int = Field(default=4, ge=1)
+    # 产物归档到 OSS 的前缀
+    starling_oss_archive_prefix: str = "starling-archive"
+    # 传给 Starling 的视频 URL 来源：aliyun_oss（公开桶）/ tos_beijing
+    starling_video_url_provider: str = "aliyun_oss"
+
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     model_config = SettingsConfigDict(

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
@@ -967,4 +967,212 @@ class BaiduVodJobSummary(BaseModel):
     total_duration_seconds: float
     error_message: str | None
     created_at: UTCDatetime
+
+
+# ---------------------- Starling 短剧翻配 ----------------------
+
+
+class StarlingDramaUploadFileSpec(BaseModel):
+    filename: str
+    content_type: str = "video/mp4"
+
+
+class StarlingDramaUploadUrlRequest(BaseModel):
+    files: list[StarlingDramaUploadFileSpec]
+    job_id: str | None = None
+
+
+class StarlingDramaUploadEntry(BaseModel):
+    filename: str
+    presigned_url: str
+    public_url: str
+    oss_uri: str
+    key: str
+
+
+class StarlingDramaUploadUrlResponse(BaseModel):
+    job_id: str
+    expires_in: int
+    entries: list[StarlingDramaUploadEntry]
+
+
+class StarlingDramaMultipartPartInfo(BaseModel):
+    part_number: int
+    offset: int
+    size: int
+    presigned_url: str
+
+
+class StarlingDramaMultipartUploadUrlRequest(BaseModel):
+    filename: str
+    content_type: str = "video/mp4"
+    file_size: int = Field(ge=1)
+    job_id: str | None = None
+    index: int = Field(default=0, ge=0)
+
+
+class StarlingDramaMultipartUploadUrlResponse(BaseModel):
+    job_id: str
+    upload_id: str
+    key: str
+    oss_uri: str
+    public_url: str
+    part_size: int
+    parts: list[StarlingDramaMultipartPartInfo]
+    expires_in: int
+
+
+class StarlingDramaCompletePart(BaseModel):
+    part_number: int
+    etag: str
+
+
+class StarlingDramaCompleteMultipartRequest(BaseModel):
+    job_id: str
+    key: str
+    upload_id: str
+    parts: list[StarlingDramaCompletePart]
+
+
+class StarlingDramaCompleteMultipartResponse(BaseModel):
+    public_url: str
+    oss_uri: str
+
+
+class StarlingDramaAbortMultipartRequest(BaseModel):
+    key: str
+    upload_id: str
+
+
+class StarlingDramaAbortMultipartResponse(BaseModel):
+    ok: bool = True
+
+
+class StarlingDramaJobItemSpec(BaseModel):
+    filename: str
+    oss_uri: str
+    public_url: str
+    drama_index: int = 0
+    episode_index: int = 0
+
+
+class StarlingDramaJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    drama_name: str
+    source_lang: str
+    target_langs: list[str]
+
+    subtitle_removal_mode: str = Field(default="BASIC", pattern="^(NONE|BASIC|ADVANCED)$")
+    burn_target_subtitle: bool = True
+    subtitle_style_template: str = "white-black-outline-v1"
+
+    dubbing_enabled: bool = True
+    dubbing_speaker_mode: str = Field(
+        default="AUTO_MULTI_SPEAKER", pattern="^(AUTO_MULTI_SPEAKER|REUSE_DRAMA_SPEAKERS)$"
+    )
+    dubbing_emotion_mode: str = Field(default="STANDARD", pattern="^(STANDARD|HIGH_EMOTION)$")
+    dubbing_preserve_bg_audio: bool = True
+
+    workflow_mode: str = Field(
+        default="FULLY_AUTOMATIC", pattern="^(FULLY_AUTOMATIC|MANUAL_REVIEW)$"
+    )
+    max_retry_count: int = Field(default=2, ge=0, le=10)
+
+    items: list[StarlingDramaJobItemSpec]
+    original_filenames: list[str] | None = None
+
+    @field_validator("target_langs")
+    @classmethod
+    def at_least_one_lang(cls, v: list[str]) -> list[str]:
+        if not v or not all(isinstance(x, str) and x.strip() for x in v):
+            raise ValueError("target_langs 必须至少包含一个非空语言代码")
+        return v
+
+
+class StarlingDramaTranslationOut(BaseModel):
+    starling_subtask_id: str | None = None
+    ai_flow_status: str | None = None
+    submit_status: str | None = None
+    suppression_status: str | None = None
+    products: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
+
+
+class StarlingDramaJobItemOut(BaseModel):
+    drama_index: int
+    episode_number: int
+    source_filename: str
+    source_oss_uri: str
+    source_video_url: str | None = None
+    duration_ms: int | None = None
+    width: int | None = None
+    height: int | None = None
+
+    starling_video_id: str | None = None
+    upload_batch_id: str | None = None
+    upload_status: str | None = None
+
+    translations: dict[str, StarlingDramaTranslationOut]
+    status: str
+    error: str | None = None
+
+
+class StarlingDramaJobOut(BaseModel):
+    id: str
+    title: str
+    drama_name: str
+    source_lang: str
+    target_langs: list[str]
+
+    starling_project_id: str | None
+    starling_task_id: str | None
+
+    subtitle_removal_mode: str
+    burn_target_subtitle: bool
+    subtitle_style_template: str
+
+    dubbing_enabled: bool
+    dubbing_speaker_mode: str
+    dubbing_emotion_mode: str
+    dubbing_preserve_bg_audio: bool
+
+    workflow_mode: str
+    max_retry_count: int
+
+    items: list[StarlingDramaJobItemOut]
+    original_filenames: list[str] | None
+    output_oss_prefix: str
+    output_tos_prefix: str | None = None
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
     updated_at: UTCDatetime
+
+
+class StarlingDramaJobSummary(BaseModel):
+    id: str
+    title: str
+    drama_name: str
+    source_lang: str
+    target_langs: list[str]
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+
+
+class StarlingDramaRerunRequest(BaseModel):
+    """重新运行失败子任务（重置对应 item 的 translations）。"""
+
+    target_langs: list[str] | None = None
+    episode_indexes: list[int] | None = None  # 指定集重跑，None=全部失败项

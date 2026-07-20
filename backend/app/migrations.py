@@ -6,6 +6,7 @@ from app.models import (
     AppSetting,
     CleanedScriptJob,
     PromptTemplate,
+    StarlingDramaJob,
     VideoScriptJob,
     VideoSubtitleEraseJob,
     VideoSubtitleJob,
@@ -27,6 +28,8 @@ CREATE_VIDEO_SUBTITLE_ERASE_JOBS_VERSION = "20260704_001_create_video_subtitle_e
 ADD_SUBTITLE_ERASE_BURN_MODE_VERSION = "20260705_001_add_subtitle_erase_burn_mode"
 CREATE_APP_SETTINGS_VERSION = "20260706_001_create_app_settings"
 MIGRATE_BURN_FONT_SIZE_PCT_VERSION = "20260709_001_migrate_burn_font_size_pct"
+CREATE_STARLING_DRAMA_JOBS_VERSION = "20260719_001_create_starling_drama_jobs"
+ADD_STARLING_DRAMA_OUTPUT_TOS_PREFIX_VERSION = "20260719_002_add_starling_drama_output_tos_prefix"
 
 
 metadata = MetaData()
@@ -103,6 +106,18 @@ async def run_migrations(connection: AsyncConnection) -> None:
             schema_migrations.insert().values(version=MIGRATE_BURN_FONT_SIZE_PCT_VERSION)
         )
 
+    if CREATE_STARLING_DRAMA_JOBS_VERSION not in applied:
+        await connection.run_sync(_create_starling_drama_jobs)
+        await connection.execute(
+            schema_migrations.insert().values(version=CREATE_STARLING_DRAMA_JOBS_VERSION)
+        )
+
+    if ADD_STARLING_DRAMA_OUTPUT_TOS_PREFIX_VERSION not in applied:
+        await connection.run_sync(_add_starling_drama_output_tos_prefix)
+        await connection.execute(
+            schema_migrations.insert().values(version=ADD_STARLING_DRAMA_OUTPUT_TOS_PREFIX_VERSION)
+        )
+
     await _seed_default_prompt(connection)
 
 
@@ -177,6 +192,25 @@ def _create_app_settings(sync_connection) -> None:
     if AppSetting.__tablename__ in inspector.get_table_names():
         return
     AppSetting.__table__.create(sync_connection, checkfirst=True)
+
+
+def _create_starling_drama_jobs(sync_connection) -> None:
+    inspector = inspect(sync_connection)
+    if StarlingDramaJob.__tablename__ in inspector.get_table_names():
+        return
+    StarlingDramaJob.__table__.create(sync_connection, checkfirst=True)
+
+
+def _add_starling_drama_output_tos_prefix(sync_connection) -> None:
+    """为 starling_drama_jobs 加 output_tos_prefix 列（用于 TOS 北京桶归档路径）。"""
+    inspector = inspect(sync_connection)
+    if StarlingDramaJob.__tablename__ not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns(StarlingDramaJob.__tablename__)}
+    if "output_tos_prefix" not in cols:
+        sync_connection.execute(text(
+            "ALTER TABLE starling_drama_jobs ADD COLUMN output_tos_prefix TEXT"
+        ))
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

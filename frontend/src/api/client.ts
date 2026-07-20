@@ -28,6 +28,15 @@ import type {
   BaiduVodJobSummary,
   BaiduVodRerunRequest,
   BaiduVodRuntimeLimits,
+  StarlingDramaCompleteMultipartInput,
+  StarlingDramaCompleteMultipartResponse,
+  StarlingDramaJobCreateInput,
+  StarlingDramaJobOut,
+  StarlingDramaJobSummary,
+  StarlingDramaMultipartUploadUrlResponse,
+  StarlingDramaRerunRequest,
+  StarlingDramaUploadUrlInput,
+  StarlingDramaUploadUrlResponse,
   SubtitleJobOut,
   SubtitleJobSummary,
   SubtitleUploadUrlResponse,
@@ -463,5 +472,81 @@ export async function getBaiduVodRuntimeLimits() {
 
 export async function saveBaiduVodSettings(params: Record<string, unknown>) {
   const response = await client.put<Record<string, unknown>>("/baidu-vod/settings", params);
+  return response.data;
+}
+
+// ===== Starling 短剧全链路翻配 =====
+
+export async function requestStarlingDramaUploadUrls(payload: StarlingDramaUploadUrlInput) {
+  const response = await client.post<StarlingDramaUploadUrlResponse>(
+    "/starling-drama/upload-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function requestStarlingDramaMultipartUrls(payload: {
+  filename: string;
+  content_type: string;
+  file_size: number;
+  job_id?: string;
+  index?: number;
+}) {
+  const response = await client.post<StarlingDramaMultipartUploadUrlResponse>(
+    "/starling-drama/upload-multipart-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function completeStarlingDramaMultipart(payload: StarlingDramaCompleteMultipartInput) {
+  const response = await client.post<StarlingDramaCompleteMultipartResponse>(
+    "/starling-drama/complete-multipart",
+    payload
+  );
+  return response.data;
+}
+
+export async function abortStarlingDramaMultipart(key: string, upload_id: string) {
+  await client.post("/starling-drama/abort-multipart", { key, upload_id });
+}
+
+export async function createStarlingDramaJob(payload: StarlingDramaJobCreateInput) {
+  const response = await client.post<StarlingDramaJobOut>("/starling-drama", payload);
+  return response.data;
+}
+
+export async function getStarlingDramaJob(jobId: string) {
+  const response = await client.get<StarlingDramaJobOut>(`/starling-drama/${jobId}`);
+  return response.data;
+}
+
+export async function listStarlingDramaJobs(limit = 100, offset = 0) {
+  const response = await client.get<StarlingDramaJobSummary[]>("/starling-drama", {
+    params: { limit, offset },
+  });
+  return response.data;
+}
+
+export async function retryStarlingDramaJob(jobId: string, payload?: StarlingDramaRerunRequest) {
+  const response = await client.post<StarlingDramaJobOut>(
+    `/starling-drama/${jobId}/retry`,
+    payload ?? {}
+  );
+  return response.data;
+}
+
+export async function stopStarlingDramaJob(jobId: string) {
+  const response = await client.post<StarlingDramaJobOut>(`/starling-drama/${jobId}/stop`);
+  return response.data;
+}
+
+export async function getStarlingDramaSettings() {
+  const response = await client.get<Record<string, unknown>>("/starling-drama/settings");
+  return response.data;
+}
+
+export async function saveStarlingDramaSettings(params: Record<string, unknown>) {
+  const response = await client.put<Record<string, unknown>>("/starling-drama/settings", params);
   return response.data;
 }

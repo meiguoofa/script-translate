@@ -25,6 +25,7 @@ from app.routers import (
     model_catalog,
     prompt_templates,
     scripts,
+    starling_drama,
     subtitle_erase,
     translations,
     video_jobs,
@@ -141,4 +142,5 @@ def create_app() -> FastAPI:
     app.include_router(video_subtitle.router, prefix=settings.api_prefix)
     app.include_router(subtitle_erase.router, prefix=settings.api_prefix)
     app.include_router(baidu_vod.router, prefix=settings.api_prefix)
+    app.include_router(starling_drama.router, prefix=settings.api_prefix)
     return app
