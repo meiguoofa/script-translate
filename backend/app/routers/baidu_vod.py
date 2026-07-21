@@ -44,6 +44,47 @@ def _safe_filename(name: str) -> str:
     return _SAFE_NAME.sub("_", base)
 
 
+def _build_subtitle_config(payload) -> dict:
+    """构造 subtitleConfig。
+
+    fontConfig 嵌套在 text type 下(如 "dialog"),百度 API 要求 camelCase 键;
+    扁平 snake_case 会被百度忽略,导致译文烧录位置/样式退回默认,
+    译文落在原字幕擦除区上方(出现"译文压在黑矩形上"的视觉问题)。
+    desubtitle_enabled=False 时不发 desubtitleConfig(关闭擦除)。
+    """
+    font = payload.font_config
+    subtitle_config: dict = {
+        "recognitionType": payload.recognition_type,
+        "textTypeList": payload.text_type_list,
+        "targetSubtitleCompose": payload.target_subtitle_compose,
+        "fontConfig": {
+            "dialog": {
+                "padding": font.padding,
+                "color": "#00000000",  # 透明背景,避免译文带黑框
+                "font": {
+                    "family": font.family,
+                    "alignment": font.alignment,
+                    "size": font.size,
+                    "bold": font.bold,
+                    "color": font.color,
+                    "outlineThickness": font.outline_thickness,
+                    "outlineColor": font.outline_color,
+                },
+            },
+        },
+    }
+    if payload.desubtitle_enabled:
+        subtitle_config["desubtitleConfig"] = {
+            "modelType": payload.desubtitle_model,
+            "desubtitleType": payload.desubtitle_type,
+        }
+    if payload.ocr_area_list:
+        subtitle_config["ocrConfig"] = {
+            "areaList": [a.model_dump() for a in payload.ocr_area_list],
+        }
+    return subtitle_config
+
+
 def _items_counts(items: list[dict]) -> tuple[int, int]:
     succeeded = sum(1 for it in items if it.get("status") == "succeeded")
     failed = sum(1 for it in items if it.get("status") == "failed")
@@ -371,21 +412,9 @@ async def create_baidu_vod_job(
     translation_config = {
         "translationTypeList": payload.translation_type_list,
         "voiceMode": payload.voice_mode,
+        "voiceList": payload.voice_list,
     }
-    subtitle_config = {
-        "recognitionType": payload.recognition_type,
-        "textTypeList": payload.text_type_list,
-        "targetSubtitleCompose": payload.target_subtitle_compose,
-        "desubtitleConfig": {
-            "modelType": payload.desubtitle_model,
-            "desubtitleType": payload.desubtitle_type,
-        },
-        "fontConfig": payload.font_config.model_dump(),
-    }
-    if payload.ocr_area_list:
-        subtitle_config["ocrConfig"] = {
-            "areaList": [a.model_dump() for a in payload.ocr_area_list],
-        }
+    subtitle_config = _build_subtitle_config(payload)
 
     job = VideoBaiduVodJob(
         id=payload.job_id,
@@ -614,21 +643,9 @@ async def rerun_all_items(
     translation_config = {
         "translationTypeList": payload.translation_type_list,
         "voiceMode": payload.voice_mode,
+        "voiceList": payload.voice_list,
     }
-    subtitle_config = {
-        "recognitionType": payload.recognition_type,
-        "textTypeList": payload.text_type_list,
-        "targetSubtitleCompose": payload.target_subtitle_compose,
-        "desubtitleConfig": {
-            "modelType": payload.desubtitle_model,
-            "desubtitleType": payload.desubtitle_type,
-        },
-        "fontConfig": payload.font_config.model_dump(),
-    }
-    if payload.ocr_area_list:
-        subtitle_config["ocrConfig"] = {
-            "areaList": [a.model_dump() for a in payload.ocr_area_list],
-        }
+    subtitle_config = _build_subtitle_config(payload)
     job.translation_config_json = json.dumps(translation_config, ensure_ascii=False)
     job.subtitle_config_json = json.dumps(subtitle_config, ensure_ascii=False)
     job.qps = settings.baidu_vod_global_qps

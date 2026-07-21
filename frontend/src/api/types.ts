@@ -634,6 +634,7 @@ export type BaiduVodJobCreateInput = {
   target_langs: string[];
   translation_type_list: string[];
   voice_mode?: string | null;
+  voice_list?: string[] | null;
   recognition_type: string;
   text_type_list: string[];
   target_subtitle_compose: boolean;
@@ -652,6 +653,7 @@ export type BaiduVodRerunRequest = {
   target_langs: string[];
   translation_type_list: string[];
   voice_mode?: string | null;
+  voice_list?: string[] | null;
   recognition_type: string;
   text_type_list: string[];
   target_subtitle_compose: boolean;

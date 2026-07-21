@@ -186,6 +186,7 @@ type FormParams = {
   targetLangs: string[];
   translationTypes: string[]; // subtitle / speech
   voiceMode: string; // VOICE_CLONE / AI_DUB
+  voiceId: string; // AI_DUB 必填,百度控制台音色列表查询
   recognitionType: string; // OCR / ASR
   textTypes: string[]; // dialog / castName / castDescription / other
   targetSubtitleCompose: boolean;
@@ -208,12 +209,13 @@ const DEFAULT_FORM_PARAMS: FormParams = {
   targetLangs: ["en-US"],
   translationTypes: ["subtitle"],
   voiceMode: "VOICE_CLONE",
+  voiceId: "",
   recognitionType: "OCR",
   textTypes: ["dialog"],
   targetSubtitleCompose: true,
   desubtitleEnabled: true,
   desubtitleModel: "v4",
-  desubtitleType: "dialog",
+  desubtitleType: "global",
   fontFamily: "Hei",
   fontSize: 48,
   fontAlignment: "center",
@@ -292,8 +294,11 @@ export function BaiduVodPage() {
     return <PassphraseGate onVerified={() => setVerified(true)} />;
   }
 
+  const hasSpeech = p.translationTypes.includes("speech");
+  const needsVoiceId = hasSpeech && p.voiceMode === "AI_DUB";
   const canSubmit = title.trim() && dramas.length > 0 && dramas.some((d) => d.files.length > 0)
-    && p.targetLangs.length > 0 && p.translationTypes.length > 0;
+    && p.targetLangs.length > 0 && p.translationTypes.length > 0
+    && (!needsVoiceId || p.voiceId.trim().length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -365,6 +370,14 @@ export function BaiduVodPage() {
         padding: p.fontPadding,
       };
 
+      const hasSpeech = p.translationTypes.includes("speech");
+      const voiceMode = hasSpeech ? p.voiceMode : null;
+      // AI_DUB 必须传 voice_list;VOICE_CLONE 不需要(后端会校验)
+      const voiceList =
+        hasSpeech && voiceMode === "AI_DUB" && p.voiceId.trim()
+          ? [p.voiceId.trim()]
+          : null;
+
       const job = await createBaiduVodJob({
         job_id,
         title: title.trim(),
@@ -372,7 +385,8 @@ export function BaiduVodPage() {
         source_language: p.sourceLang,
         target_langs: p.targetLangs,
         translation_type_list: p.translationTypes,
-        voice_mode: p.translationTypes.includes("speech") ? p.voiceMode : null,
+        voice_mode: voiceMode,
+        voice_list: voiceList,
         recognition_type: p.recognitionType,
         text_type_list: p.textTypes,
         target_subtitle_compose: p.targetSubtitleCompose,
@@ -528,15 +542,32 @@ export function BaiduVodPage() {
           </div>
 
           {p.translationTypes.includes("speech") ? (
-            <div className="flex flex-col gap-1.5">
-              <Label>配音模式</Label>
-              <Select value={p.voiceMode} onValueChange={(v) => setP({ ...p, voiceMode: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="VOICE_CLONE">声音复刻 VOICE_CLONE(多角色)</SelectItem>
-                  <SelectItem value="AI_DUB">AI 音色 AI_DUB(单音色)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>配音模式</Label>
+                <Select value={p.voiceMode} onValueChange={(v) => setP({ ...p, voiceMode: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="VOICE_CLONE">声音复刻 VOICE_CLONE(多角色)</SelectItem>
+                    <SelectItem value="AI_DUB">AI 音色 AI_DUB(单音色)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {p.voiceMode === "AI_DUB" ? (
+                <div className="flex flex-col gap-1.5">
+                  <Label>音色 ID (voiceId, 必填)</Label>
+                  <Input
+                    type="text"
+                    placeholder="如 1101(从百度 VOD 控制台音色列表查询)"
+                    value={p.voiceId}
+                    onChange={(e) => setP({ ...p, voiceId: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    AI_DUB 仅支持 1 个音色,voiceId 必须匹配目标语言。
+                    音色 ID 列表请到百度 VOD 控制台 → 视频翻译 → 音色管理查询。
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -606,8 +637,8 @@ export function BaiduVodPage() {
                 <Select value={p.desubtitleType} onValueChange={(v) => setP({ ...p, desubtitleType: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="dialog">dialog 对白字幕</SelectItem>
-                    <SelectItem value="global">global 全局字幕</SelectItem>
+                    <SelectItem value="global">global 全局字幕区擦除(推荐)</SelectItem>
+                    <SelectItem value="dialog">dialog 仅 OCR 检测框擦除</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -682,7 +713,12 @@ export function BaiduVodPage() {
           <SummaryRow label="目标语言" value={p.targetLangs.map((v) => TARGET_LANGS.find((l) => l.value === v)?.label || v).join("、")} />
           <SummaryRow label="翻译类型" value={p.translationTypes.join("、")} />
           {p.translationTypes.includes("speech") ? (
-            <SummaryRow label="配音模式" value={p.voiceMode} />
+            <>
+              <SummaryRow label="配音模式" value={p.voiceMode} />
+              {p.voiceMode === "AI_DUB" ? (
+                <SummaryRow label="音色 ID" value={p.voiceId || "(未填)"} />
+              ) : null}
+            </>
           ) : null}
           <SummaryRow label="识别方式" value={p.recognitionType} />
           <SummaryRow label="擦除字幕" value={p.desubtitleEnabled ? `${p.desubtitleModel} / ${p.desubtitleType}` : "否"} />

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, PlainSerializer, field_validator
+from pydantic import BaseModel, Field, PlainSerializer, field_validator, model_validator
 
 
 def _to_utc_iso(value: datetime | None) -> str | None:
@@ -796,6 +796,53 @@ class BaiduVodJobItemSpec(BaseModel):
     episode_index: int = 0
 
 
+def _validate_voice_mode(obj) -> object:
+    """跨字段校验:voice_mode 与 target_langs / voice_list 的组合。
+
+    - VOICE_CLONE: 不做语言白名单校验(百度官方文档仅列部分语言,
+      但实际 API 接受更广,如 pt-PT 葡萄牙语能跑通。语言支持由百度决定,
+      在 backend 层硬拒绝会阻断原本能工作的组合)
+    - AI_DUB: voice_list 必填且只能 1 个音色 ID
+    - speech 未选时 voice_mode 应为 None(忽略不报错,防御性清空)
+    """
+    voice_mode = obj.voice_mode
+    has_speech = "speech" in (obj.translation_type_list or [])
+
+    if not has_speech:
+        # 字幕翻译不需要 voice_mode,防御性清空避免下游误用
+        obj.voice_mode = None
+        obj.voice_list = None
+        return obj
+
+    if not voice_mode:
+        raise ValueError(
+            "translation_type_list 含 speech 时必须配置 voice_mode"
+            "(VOICE_CLONE 多角色复刻 / AI_DUB 单音色 AI 配音)"
+        )
+
+    if voice_mode not in ("VOICE_CLONE", "AI_DUB"):
+        raise ValueError(
+            f"不支持的 voice_mode: {voice_mode}(允许: VOICE_CLONE / AI_DUB)"
+        )
+
+    if voice_mode == "VOICE_CLONE":
+        # VOICE_CLONE 不需要 voice_list,清空避免误传
+        obj.voice_list = None
+    elif voice_mode == "AI_DUB":
+        voice_list = obj.voice_list or []
+        if not voice_list:
+            raise ValueError(
+                "AI_DUB 必须提供 voice_list(音色 ID 列表),"
+                "音色 ID 需从百度 VOD 控制台音色列表查询,"
+                "且 voiceId 必须匹配目标语言。"
+            )
+        if len(voice_list) > 1:
+            raise ValueError(
+                f"AI_DUB 当前仅支持 1 个音色,收到 {len(voice_list)} 个"
+            )
+    return obj
+
+
 class BaiduVodOcrArea(BaseModel):
     """百度 VOD OCR 区域配置(画面坐标,可选)"""
     x: int
@@ -826,13 +873,14 @@ class BaiduVodJobCreateRequest(BaseModel):
     # 翻译配置
     translation_type_list: list[str] = Field(default_factory=lambda: ["subtitle"])  # subtitle/speech
     voice_mode: str | None = None  # VOICE_CLONE/AI_DUB,仅含 speech 时必填
+    voice_list: list[str] | None = None  # AI_DUB 必填,音色 ID 列表(百度只支持 1 个)
     # 字幕配置
     recognition_type: str = "OCR"  # OCR/ASR
     text_type_list: list[str] = Field(default_factory=lambda: ["dialog"])  # dialog/castName/castDescription/other
     target_subtitle_compose: bool = True  # 烧录译文字幕到视频
     desubtitle_enabled: bool = True  # 擦除原字幕
     desubtitle_model: str = "v4"  # v4/v3
-    desubtitle_type: str = "dialog"  # dialog/global
+    desubtitle_type: str = "global"  # global 整片字幕区擦除 / dialog 仅 OCR 检测框擦除
     ocr_area_list: list[BaiduVodOcrArea] | None = None  # 空=全画面
     font_config: BaiduVodFontConfig = Field(default_factory=BaiduVodFontConfig)
     # 限流
@@ -878,6 +926,10 @@ class BaiduVodJobCreateRequest(BaseModel):
                 out.append(t)
         return out
 
+    @model_validator(mode="after")
+    def validate_voice_mode(self) -> "BaiduVodJobCreateRequest":
+        return _validate_voice_mode(self)
+
 
 class BaiduVodRerunRequest(BaseModel):
     project_type: str = Field(pattern="^(ShortSeries|Ecommerce)$")
@@ -885,6 +937,7 @@ class BaiduVodRerunRequest(BaseModel):
     target_langs: list[str]
     translation_type_list: list[str]
     voice_mode: str | None = None
+    voice_list: list[str] | None = None  # AI_DUB 必填,音色 ID 列表(百度只支持 1 个)
     recognition_type: str
     text_type_list: list[str]
     target_subtitle_compose: bool
@@ -924,6 +977,10 @@ class BaiduVodRerunRequest(BaseModel):
             if t not in out:
                 out.append(t)
         return out
+
+    @model_validator(mode="after")
+    def validate_voice_mode(self) -> "BaiduVodRerunRequest":
+        return _validate_voice_mode(self)
 
 
 class BaiduVodRuntimeLimitsOut(BaseModel):

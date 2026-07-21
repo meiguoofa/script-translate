@@ -111,10 +111,12 @@ def _build_translation_config(snapshot: dict, target_lang: str) -> dict:
     }
     if voice_mode:
         tts_config: dict[str, object] = {"type": voice_mode}
-        # AI_DUB 必须传 voiceList(目前只能 1 个音色),否则百度会拒绝任务。
+        # AI_DUB 必须传 voiceList(百度只支持 1 个音色),结构为对象数组
+        # [{"voiceId": "..."}](百度官方文档明确要求,不是字符串数组)。
+        # voiceId 必须匹配目标语言,从百度 VOD 控制台音色列表查询。
         voice_list = cfg.get("voiceList")
         if voice_mode == "AI_DUB" and voice_list:
-            tts_config["voiceList"] = voice_list
+            tts_config["voiceList"] = [{"voiceId": vid} for vid in voice_list]
         out["ttsConfig"] = tts_config
     return out
 
