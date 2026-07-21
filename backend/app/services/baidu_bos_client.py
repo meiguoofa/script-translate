@@ -123,6 +123,26 @@ class BaiduBOSClient:
             bos_uri=self.bos_uri(key),
         )
 
+    def presign_get(self, key: str, expires_in: int = 86400) -> str:
+        """签名单文件 GET URL。用于让百度 VOD 从 BOS 拉取视频。
+
+        与 unsigned public_url 不同,presigned URL 是认证请求(AK+签名),
+        走 BOS 认证路径而非 anonymous 公开读路径,可绕开公开读 QPS 限流。
+        大批量多集并发拉取时,public_url 容易触发 BOS 429/503,
+        百度 VOD 报 "Tried multi rounds but failed to fetch url"。
+        """
+        url = self._client.generate_pre_signed_url(
+            bucket_name=self.bucket_name,
+            key=key,
+            expiration_in_seconds=expires_in,
+            httpmethod=http_methods.GET,
+        )
+        if isinstance(url, bytes):
+            url = url.decode("ascii")
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://"):]
+        return url
+
     def presign_multipart_put(
         self,
         key: str,

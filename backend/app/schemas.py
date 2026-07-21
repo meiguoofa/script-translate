@@ -828,7 +828,7 @@ class BaiduVodJobCreateRequest(BaseModel):
     voice_mode: str | None = None  # VOICE_CLONE/AI_DUB,仅含 speech 时必填
     # 字幕配置
     recognition_type: str = "OCR"  # OCR/ASR
-    text_type_list: list[str] = Field(default_factory=lambda: ["dialog"])  # dialog/title/other
+    text_type_list: list[str] = Field(default_factory=lambda: ["dialog"])  # dialog/castName/castDescription/other
     target_subtitle_compose: bool = True  # 烧录译文字幕到视频
     desubtitle_enabled: bool = True  # 擦除原字幕
     desubtitle_model: str = "v4"  # v4/v3
@@ -858,6 +858,26 @@ class BaiduVodJobCreateRequest(BaseModel):
                 raise ValueError(f"不支持的 translation_type: {t}")
         return v
 
+    @field_validator("text_type_list")
+    @classmethod
+    def normalize_text_type_list(cls, v: list[str]) -> list[str]:
+        # 百度 VOD 官方支持的 textTypeList 取值:
+        # dialog / castName / castDescription / other
+        # 历史曾用 "title",百度端已改名为 "castName",这里做一次兼容映射。
+        if not v:
+            raise ValueError("text_type_list 必须至少包含一种类型(dialog/castName/castDescription/other)")
+        out: list[str] = []
+        for t in v:
+            if t == "title":
+                if "castName" not in out:
+                    out.append("castName")
+                continue
+            if t not in ("dialog", "castName", "castDescription", "other"):
+                raise ValueError(f"不支持的 text_type: {t}(允许: dialog/castName/castDescription/other)")
+            if t not in out:
+                out.append(t)
+        return out
+
 
 class BaiduVodRerunRequest(BaseModel):
     project_type: str = Field(pattern="^(ShortSeries|Ecommerce)$")
@@ -884,6 +904,26 @@ class BaiduVodRerunRequest(BaseModel):
         if not v:
             raise ValueError("target_langs 必须至少包含一个语言")
         return v
+
+    @field_validator("text_type_list")
+    @classmethod
+    def normalize_text_type_list(cls, v: list[str]) -> list[str]:
+        # 百度 VOD 官方支持的 textTypeList 取值:
+        # dialog / castName / castDescription / other
+        # 历史曾用 "title",百度端已改名为 "castName",这里做一次兼容映射。
+        if not v:
+            raise ValueError("text_type_list 必须至少包含一种类型(dialog/castName/castDescription/other)")
+        out: list[str] = []
+        for t in v:
+            if t == "title":
+                if "castName" not in out:
+                    out.append("castName")
+                continue
+            if t not in ("dialog", "castName", "castDescription", "other"):
+                raise ValueError(f"不支持的 text_type: {t}(允许: dialog/castName/castDescription/other)")
+            if t not in out:
+                out.append(t)
+        return out
 
 
 class BaiduVodRuntimeLimitsOut(BaseModel):

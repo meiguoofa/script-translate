@@ -549,6 +549,10 @@ async def retry_failed_items(
         it = items[idx]
         if not isinstance(it.get("translations"), dict):
             it["translations"] = {}
+        # 如果 fetch_media 失败(没有 baidu_media_id),清掉旧 upload_task_id,
+        # runner 会重新走 fetch_media 流程(用 presigned GET URL)。
+        if not it.get("baidu_media_id"):
+            it["baidu_upload_task_id"] = None
         for lang, t in it["translations"].items():
             if t.get("status") == "failed":
                 # 清旧 task 产物,保留 media_id

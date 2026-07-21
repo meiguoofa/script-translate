@@ -187,7 +187,7 @@ type FormParams = {
   translationTypes: string[]; // subtitle / speech
   voiceMode: string; // VOICE_CLONE / AI_DUB
   recognitionType: string; // OCR / ASR
-  textTypes: string[]; // dialog / title / other
+  textTypes: string[]; // dialog / castName / castDescription / other
   targetSubtitleCompose: boolean;
   desubtitleEnabled: boolean;
   desubtitleModel: string; // v4 / v3
@@ -252,8 +252,21 @@ export function BaiduVodPage() {
       try {
         const data = await getBaiduVodSettings();
         if (data && typeof data === "object") {
-          const saved = { ...data };
+          const saved = { ...data } as Partial<FormParams> & Record<string, unknown>;
           delete saved.qps;
+          // 百度 VOD 已将 textTypeList 的 "title" 改名为 "castName",
+          // 历史 saved settings 里可能仍存 "title",这里做一次兼容映射,
+          // 避免老用户打开页面后表单仍勾选已失效的"标题"项。
+          const textTypes = saved.textTypes as unknown[] | undefined;
+          if (Array.isArray(textTypes)) {
+            const mapped = textTypes
+              .map((t) => (t === "title" ? "castName" : t))
+              .filter((t): t is string =>
+                typeof t === "string" &&
+                ["dialog", "castName", "castDescription", "other"].includes(t)
+              );
+            saved.textTypes = mapped.length > 0 ? mapped : ["dialog"];
+          }
           setP((prev) => ({ ...prev, ...(saved as Partial<FormParams>) }));
         }
       } catch {
@@ -545,7 +558,8 @@ export function BaiduVodPage() {
               <div className="flex flex-wrap gap-3">
                 {[
                   { value: "dialog", label: "对白" },
-                  { value: "title", label: "标题" },
+                  { value: "castName", label: "人名" },
+                  { value: "castDescription", label: "人物描述" },
                   { value: "other", label: "其他" },
                 ].map((l) => {
                   const checked = p.textTypes.includes(l.value);

@@ -154,18 +154,41 @@ export function MultiFolderDropzone({ dramas, onChange, disabled }: Props) {
           const entry = items[i].webkitGetAsEntry();
           if (entry) entries.push(entry);
         }
-        const allDramas: Drama[] = [];
+
+        // 浏览器对每个被拖拽的对象单独创建一个 entry:
+        // - 拖拽文件夹:1 个 isDirectory entry,entry.name = 文件夹名
+        // - 拖拽文件:N 个 isFile entry(每个文件一个),浏览器出于安全
+        //   考虑不暴露父目录路径(entry.fullPath 只有 "/filename"),
+        //   无法按父目录分组,只能把所有散文件合并为一部剧
+        const dramaByName = new Map<string, DramaFile[]>();
+        const scattered: DramaFile[] = [];
         for (const entry of entries) {
           const files = await traverseFileSystemEntry(entry);
+          if (files.length === 0) continue;
+          if (entry.isDirectory) {
+            const dramaName = entry.name || `剧 ${dramas.length + dramaByName.size + 1}`;
+            if (!dramaByName.has(dramaName)) dramaByName.set(dramaName, []);
+            dramaByName.get(dramaName)!.push(...files);
+          } else {
+            // 散文件:浏览器不暴露父目录,无法分组,合并为一部剧
+            scattered.push(...files);
+          }
+        }
+        if (scattered.length > 0) {
+          const dramaName = `剧 ${dramas.length + dramaByName.size + 1}`;
+          dramaByName.set(dramaName, scattered);
+        }
+
+        const allDramas: Drama[] = [];
+        dramaByName.forEach((files, name) => {
           if (files.length > 0) {
-            const dramaName = entry.name || `剧 ${dramas.length + allDramas.length + 1}`;
             allDramas.push({
-              id: `drama-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${dramaName}`,
-              name: dramaName,
+              id: `drama-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${name}`,
+              name,
               files: files.sort(naturalSort),
             });
           }
-        }
+        });
         if (allDramas.length > 0) {
           onChange([...dramas, ...allDramas]);
         }

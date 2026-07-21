@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from app.config import Settings
 from app.db import Database
 from app.models import VideoBaiduVodJob
+from app.services.baidu_bos_client import BaiduBOSClient
 from app.services.baidu_vod_client import BaiduVodClient
 from app.services.baidu_vod_governor import BaiduVodGovernor
 from app.services.ffmpeg_burn import probe_video_duration_seconds
@@ -18,6 +19,7 @@ logger = logging.getLogger("baidu_vod_runner")
 
 
 _persist_locks: dict[str, asyncio.Lock] = {}
+
 
 def _get_persist_lock(job_id: str) -> asyncio.Lock:
     lock = _persist_locks.get(job_id)
@@ -87,14 +89,34 @@ async def _load_snapshot(db: Database, job_id: str) -> dict | None:
 
 
 def _build_translation_config(snapshot: dict, target_lang: str) -> dict:
-    """构造 translationConfig(每个 target_lang 一份)。"""
+    """构造 translationConfig(每个 target_lang 一份)。
+
+    百度 VOD API 要求配音模式以 `ttsConfig.type` 嵌套对象传入
+    (旧版字段 voiceMode 已被服务端忽略,会导致 speech 翻译流程
+    移除原对白音轨但缺失配音,出现对白处静音)。
+    """
     cfg = snapshot["translation_config"]
-    return {
+    voice_mode = cfg.get("voiceMode")  # VOICE_CLONE / AI_DUB / None
+
+    # 当选择配音时强制把 speech 加入 translationTypeList,
+    # 否则百度仅做字幕翻译不会触发 TTS 流程。
+    types = list(cfg.get("translationTypeList") or ["subtitle"])
+    if voice_mode and "speech" not in types:
+        types.append("speech")
+
+    out: dict[str, object] = {
         "sourceLanguage": snapshot["source_language"],
         "targetLanguage": target_lang,
-        "translationTypeList": cfg.get("translationTypeList", ["subtitle"]),
-        "voiceMode": cfg.get("voiceMode"),  # VOICE_CLONE / AI_DUB
+        "translationTypeList": types,
     }
+    if voice_mode:
+        tts_config: dict[str, object] = {"type": voice_mode}
+        # AI_DUB 必须传 voiceList(目前只能 1 个音色),否则百度会拒绝任务。
+        voice_list = cfg.get("voiceList")
+        if voice_mode == "AI_DUB" and voice_list:
+            tts_config["voiceList"] = voice_list
+        out["ttsConfig"] = tts_config
+    return out
 
 
 async def _probe_video_duration_seconds(url: str) -> float:
@@ -150,9 +172,23 @@ async def _run_episode_impl(
     if not isinstance(item.get("translations"), dict):
         item["translations"] = {}
 
+    # 生成 presigned GET URL:认证请求,比 unsigned public_url 更稳健,
+    # 走 BOS 认证路径。24h 有效期远大于 fetch 总耗时。
+    bos_key = item.get("input_bos_key")
+    fetch_url = input_public_url
+    if bos_key:
+        try:
+            bos_client = BaiduBOSClient(settings)
+            fetch_url = bos_client.presign_get(bos_key, expires_in=86400)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "presign_get failed for %s, fallback to public_url: %s",
+                bos_key, exc,
+            )
+
     # ===== 阶段 0: 探测视频时长 =====
     if not item.get("duration_seconds"):
-        duration = await _probe_video_duration_seconds(input_public_url)
+        duration = await _probe_video_duration_seconds(fetch_url)
         item["duration_seconds"] = duration
         await _persist_items(db, job_id, items)
 
@@ -167,7 +203,7 @@ async def _run_episode_impl(
         await _persist_items(db, job_id, items)
         try:
             fetch_result = await vod.fetch_media(
-                source_url=input_public_url,
+                source_url=fetch_url,
                 name=f"{job_id[:8]}-d{item.get('drama_index', 0):02d}-e{item.get('episode_index', 0):02d}",
                 delete_after_seconds=86400 * 30,  # 30 天后自动删
             )

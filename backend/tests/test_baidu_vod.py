@@ -46,6 +46,104 @@ def job_payload(uri: str, key: str | None) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_create_baidu_vod_job_rejects_legacy_text_type_title(
+    tmp_path, monkeypatch
+):
+    """百度 VOD 已将 textTypeList 的 'title' 改名为 'castName',
+    后端 schema 必须把 'title' 自动映射为 'castName' 而不是直接透传,
+    否则百度会返回 400 InvalidParameter(subtitleConfig.textTypeList)。
+    """
+    base_env(monkeypatch, tmp_path)
+    app = load_create_app()()
+
+    async def fake_runner(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.routers.baidu_vod.run_baidu_vod_job", fake_runner)
+
+    payload = job_payload("bos://test-bucket/ep.mp4", "ep.mp4")
+    payload["job_id"] = "22222222-2222-4222-8222-222222222222"
+    payload["text_type_list"] = ["dialog", "title"]
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/baidu-vod",
+            json=payload,
+            headers={"X-Access-Passphrase": "test-pass"},
+        )
+    await app.state.db.engine.dispose()
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    # 后端应该把 'title' 自动映射为 'castName',而不是原样透传给百度
+    assert body["subtitle_config"]["textTypeList"] == ["dialog", "castName"], \
+        body["subtitle_config"]["textTypeList"]
+
+
+@pytest.mark.asyncio
+async def test_rerun_endpoint_normalizes_legacy_text_type_title(
+    tmp_path, monkeypatch
+):
+    """rerun-all endpoint 也要把旧 'title' 映射为 'castName',
+    保证历史任务用 rerun 时不会再次踩 400。
+    """
+    from app.schemas import BaiduVodRerunRequest
+
+    # 直接在 schema 层验证,rerun-all endpoint 会用同一份 Pydantic 模型做 normalize
+    req = BaiduVodRerunRequest(
+        project_type="ShortSeries",
+        source_language="zh-CN",
+        target_langs=["pt-PT"],
+        translation_type_list=["subtitle", "speech"],
+        voice_mode="VOICE_CLONE",
+        recognition_type="OCR",
+        text_type_list=["dialog", "title"],  # 旧值
+        target_subtitle_compose=True,
+        desubtitle_enabled=True,
+        desubtitle_model="v4",
+        desubtitle_type="dialog",
+        font_config={
+            "family": "Hei", "alignment": "center", "size": 48, "bold": False,
+            "color": "#FFFFFFFF", "outline_thickness": 2,
+            "outline_color": "#000000FF", "padding": 8,
+        },
+    )
+    assert req.text_type_list == ["dialog", "castName"], req.text_type_list
+
+
+@pytest.mark.asyncio
+async def test_create_baidu_vod_job_rejects_invalid_text_type(
+    tmp_path, monkeypatch
+):
+    """非法 text_type 必须被 422 拒绝,避免错误透传到百度导致 400。"""
+    base_env(monkeypatch, tmp_path)
+    app = load_create_app()()
+
+    async def fake_runner(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.routers.baidu_vod.run_baidu_vod_job", fake_runner)
+
+    payload = job_payload("bos://test-bucket/ep.mp4", "ep.mp4")
+    payload["job_id"] = "44444444-4444-4444-8444-444444444444"
+    payload["text_type_list"] = ["dialog", "foo"]
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/baidu-vod",
+            json=payload,
+            headers={"X-Access-Passphrase": "test-pass"},
+        )
+    await app.state.db.engine.dispose()
+
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
 async def test_create_baidu_vod_job_accepts_bos_uri_and_persists_bos_metadata(
     tmp_path, monkeypatch
 ):
