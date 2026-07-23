@@ -31,6 +31,9 @@ ALLOWED_ORIGINS = [
     "http://45.78.235.74:8900",
     "https://45.78.235.74:8900",
     "https://xz-script-translate.local",
+    # 当前生产入口 IP（2026-07-23 修复 CORS 拦截）
+    "http://45.78.235.1:8900",
+    "https://45.78.235.1:8900",
 ]
 
 
