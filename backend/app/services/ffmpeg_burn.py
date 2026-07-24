@@ -26,6 +26,7 @@ def probe_video_size(video_path: str) -> tuple[int, int]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     w, h = result.stdout.strip().split(",")
     return int(w), int(h)

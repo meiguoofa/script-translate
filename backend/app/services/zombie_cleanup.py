@@ -21,7 +21,7 @@ logger = logging.getLogger("zombie_cleanup")
 # 必须 > ims_poll_timeout_seconds/60 (=180)，否则正常 IMS 轮询期间会被误判
 ZOMBIE_TIMEOUT_MINUTES = 200
 
-ZOMBIE_ERROR_MSG = "任务执行过程中服务重启，后台任务丢失（已自动标记为失败，请重新提交）"
+ZOMBIE_ERROR_MSG = "任务长时间无进度更新（可能因服务重启或后台协程挂死），已自动标记为失败，请重新提交"
 
 ABORT_ERROR_MSG = "用户手动停止任务（可调用 /retry 重试失败项）"
 
