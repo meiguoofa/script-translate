@@ -376,7 +376,9 @@ export async function rerunAllSubtitleEraseJob(jobId: string, payload: SubtitleE
   return response.data;
 }
 
-export async function listSubtitleEraseJobs(params?: { limit?: number; offset?: number }) {
+export async function listSubtitleEraseJobs(
+  params?: { limit?: number; offset?: number; q?: string },
+) {
   const response = await client.get<SubtitleEraseJobSummary[]>("/subtitle-erase", { params });
   return response.data;
 }

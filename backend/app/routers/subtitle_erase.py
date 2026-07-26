@@ -803,13 +803,13 @@ async def rerun_all_items(
 async def list_subtitle_erase_jobs(
     limit: int = 20,
     offset: int = 0,
+    q: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[SubtitleEraseJobSummary]:
-    rows = await session.scalars(
-        select(VideoSubtitleEraseJob)
-        .order_by(VideoSubtitleEraseJob.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    stmt = select(VideoSubtitleEraseJob)
+    if q and q.strip():
+        stmt = stmt.where(VideoSubtitleEraseJob.title.ilike(f"%{q.strip()}%"))
+    stmt = stmt.order_by(VideoSubtitleEraseJob.created_at.desc()).limit(limit).offset(offset)
+    rows = await session.scalars(stmt)
     return [_job_to_summary(j) for j in rows]
 

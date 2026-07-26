@@ -5,6 +5,7 @@ import type { SubtitleEraseJobSummary } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 
 const PAGE_SIZE = 20;
@@ -31,12 +32,17 @@ export function SubtitleEraseHistoryPage() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
 
-  async function loadMore(reset = false) {
+  async function loadMore(reset: boolean, q: string) {
     setLoading(true);
     try {
       const nextOffset = reset ? 0 : offset;
-      const data = await listSubtitleEraseJobs({ limit: PAGE_SIZE, offset: nextOffset });
+      const data = await listSubtitleEraseJobs({
+        limit: PAGE_SIZE,
+        offset: nextOffset,
+        q: q || undefined,
+      });
       setItems((prev) => (reset ? data : [...prev, ...data]));
       setOffset(nextOffset + data.length);
       setHasMore(data.length === PAGE_SIZE);
@@ -48,9 +54,12 @@ export function SubtitleEraseHistoryPage() {
   }
 
   useEffect(() => {
-    loadMore(true);
+    const handle = setTimeout(() => {
+      loadMore(true, query.trim());
+    }, 300);
+    return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [query]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -60,6 +69,13 @@ export function SubtitleEraseHistoryPage() {
           <CardDescription>所有曾经提交过的字幕擦除翻译任务，按时间倒序。</CardDescription>
         </CardHeader>
       </Card>
+
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="搜索任务标题…"
+        className="h-9"
+      />
 
       {items.length === 0 && !loading ? (
         <Card>
@@ -105,7 +121,7 @@ export function SubtitleEraseHistoryPage() {
 
       {hasMore ? (
         <div className="flex justify-center">
-          <Button variant="ghost" onClick={() => loadMore(false)} disabled={loading}>
+          <Button variant="ghost" onClick={() => loadMore(false, query.trim())} disabled={loading}>
             {loading ? "加载中…" : "加载更多"}
           </Button>
         </div>
