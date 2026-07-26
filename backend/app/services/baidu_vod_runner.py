@@ -386,6 +386,16 @@ async def run_baidu_vod_job(
 
         try:
             await asyncio.gather(*(_run_drama(di, eidx) for di, eidx in dramas.items()))
+        except asyncio.CancelledError:
+            # 用户通过 stop endpoint 触发 task.cancel(),各子 task 已被 cancel。
+            # 写终态让 DB 反映用户主动停止,然后 re-raise 让外层清理 task 引用。
+            logger.info("run_baidu_vod_job %s cancelled by user", job_id)
+            await _set_job_fields(
+                db, job_id, status="failed",
+                progress_message="用户手动停止任务",
+                completed_at=datetime.now(timezone.utc),
+            )
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("run_baidu_vod_job %s top-level error", job_id)
             await _set_job_fields(

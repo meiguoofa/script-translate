@@ -69,4 +69,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ### 7. 前端或者后端代码发生变动，要重新在本服务器上部署生效
 
+### 8. 部署目录是/opt/script-translate/
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -229,6 +230,30 @@ def _job_to_summary(job: VideoBaiduVodJob) -> BaiduVodJobSummary:
     )
 
 
+def _spawn_runner(
+    app_state, job_id: str, *, only_indices: list[int] | None = None
+) -> None:
+    """启动 runner 后台任务并登记到 app.state.baidu_vod_tasks。
+
+    保存 asyncio.Task 引用,stop endpoint 可以通过 job_id 找到 Task 并 cancel。
+    runner 结束后自动从映射中移除。
+    """
+    async def _runner() -> None:
+        try:
+            await run_baidu_vod_job(
+                app_state.db,
+                app_state.settings,
+                app_state.baidu_vod_governor,
+                job_id,
+                only_indices=only_indices,
+            )
+        finally:
+            app_state.baidu_vod_tasks.pop(job_id, None)
+
+    task = asyncio.create_task(_runner())
+    app_state.baidu_vod_tasks[job_id] = task
+
+
 @router.post(
     "/upload-url",
     response_model=BaiduVodUploadUrlResponse,
@@ -442,15 +467,7 @@ async def create_baidu_vod_job(
 
     state = request.app.state
 
-    async def _runner() -> None:
-        await run_baidu_vod_job(
-            state.db,
-            state.settings,
-            state.baidu_vod_governor,
-            job.id,
-        )
-
-    background_tasks.add_task(_runner)
+    _spawn_runner(state, job.id)
     return _job_to_out(job)
 
 
@@ -523,6 +540,7 @@ async def get_baidu_vod_job(
 )
 async def stop_running_job(
     job_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> BaiduVodJobOut:
     job = await session.get(VideoBaiduVodJob, job_id)
@@ -532,6 +550,24 @@ async def stop_running_job(
         raise HTTPException(
             status_code=400, detail=f"只有 running 状态的任务才能停止(当前: {job.status})"
         )
+
+    # 先 cancel 后台 asyncio task,让 runner 的长 await 点抛 CancelledError。
+    # 不阻塞太久(最多 5s),超时也无所谓 -- DB 状态已经被改成 failed,
+    # runner 即使继续轮询也只会写 failed 状态,不会反向覆盖 DB 的 failed。
+    task = request.app.state.baidu_vod_tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except asyncio.CancelledError:
+            pass
+        except asyncio.TimeoutError:
+            # runner 仍在清理中,不阻塞 HTTP 响应
+            pass
+        except Exception:  # noqa: BLE001
+            # runner 抛了其他异常,不影响 stop 的 DB 更新
+            pass
+
     job.status = "failed"
     job.error_message = ABORT_ERROR_MSG
     if job.completed_at is None:
@@ -605,16 +641,7 @@ async def retry_failed_items(
 
     state = request.app.state
 
-    async def _runner() -> None:
-        await run_baidu_vod_job(
-            state.db,
-            state.settings,
-            state.baidu_vod_governor,
-            job.id,
-            only_indices=failed_indices,
-        )
-
-    background_tasks.add_task(_runner)
+    _spawn_runner(state, job.id, only_indices=failed_indices)
     return _job_to_out(job)
 
 
@@ -686,15 +713,7 @@ async def rerun_all_items(
 
     state = request.app.state
 
-    async def _runner() -> None:
-        await run_baidu_vod_job(
-            state.db,
-            state.settings,
-            state.baidu_vod_governor,
-            job.id,
-        )
-
-    background_tasks.add_task(_runner)
+    _spawn_runner(state, job.id)
     return _job_to_out(job)
 
 

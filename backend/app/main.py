@@ -121,6 +121,8 @@ def create_app() -> FastAPI:
     app.state.db = db
     app.state.registry = registry
     app.state.baidu_vod_governor = baidu_vod_governor
+    # job_id -> asyncio.Task 映射,用于 stop endpoint 取消正在运行的 runner
+    app.state.baidu_vod_tasks: dict[str, asyncio.Task] = {}
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

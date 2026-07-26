@@ -53,7 +53,9 @@ def test_build_translation_config_ai_dub_includes_voice_list_when_provided():
         "translation_config": {
             "translationTypeList": ["subtitle", "speech"],
             "voiceMode": "AI_DUB",
-            "voiceList": [{"voiceId": "v-001"}],
+            # schemas 里 voice_list 是 list[str],router 原样存到 translation_config.voiceList
+            # runner 把字符串包装成 {"voiceId": ...} 以匹配百度 API 格式
+            "voiceList": ["v-001"],
         },
     }
     cfg = baidu_vod_runner._build_translation_config(snapshot, "pt-PT")
