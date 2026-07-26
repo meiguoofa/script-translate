@@ -4,7 +4,7 @@
 
 **Goal:** Prevent native portrait OSS videos from repeatedly failing before subtitle burn because remote layout probes exceed fixed local-file timeouts.
 
-**Architecture:** Keep the existing `VideoLayout` and stable pillarbox detection contract. Add a portrait fast path after the canvas size probe, and select longer subprocess timeouts only for HTTP(S) sources; local file behavior and the existing reliable-failure path remain unchanged.
+**Architecture:** Keep the existing `VideoLayout` and stable pillarbox detection contract. Native portrait videos use a full-frame fast path, HTTP(S) sources use longer subprocess timeouts, and landscape/square crop sampling failures degrade to the known Canvas dimensions instead of failing the episode.
 
 **Tech Stack:** Python 3.12, FFmpeg/ffprobe subprocesses, pytest
 
@@ -158,7 +158,94 @@ PYTHONPATH=backend pytest \
 
 Expected: 26 tests pass.
 
-### Task 3: Verify, integrate, and deploy
+### Task 3: Fall back to Canvas when landscape sampling is unavailable
+
+**Files:**
+- Modify: `backend/tests/test_ffmpeg_burn.py`
+- Modify: `backend/app/services/ffmpeg_burn.py`
+
+- [ ] **Step 1: Change the existing failure expectations to full-frame fallback**
+
+Replace the two tests that expect `RuntimeError` with:
+
+```python
+def test_probe_video_layout_falls_back_when_all_crop_probes_error(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
+
+    def fail_probe(_path: str, _timestamp: float):
+        raise TimeoutError("ffmpeg timed out")
+
+    monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", fail_probe)
+
+    assert probe_video_layout(
+        "episode.mp4", duration_seconds=100
+    ) == VideoLayout.full_frame(1920, 1080)
+
+
+def test_probe_video_layout_falls_back_when_only_one_remote_sample_succeeds(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
+    samples = iter(
+        [
+            TimeoutError("first sample timed out"),
+            TimeoutError("second sample timed out"),
+            (608, 1080, 656, 0),
+        ]
+    )
+
+    def sample_or_raise(_path: str, _timestamp: float):
+        result = next(samples)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", sample_or_raise)
+
+    assert probe_video_layout(
+        "https://example/episode.mp4", duration_seconds=100
+    ) == VideoLayout.full_frame(1920, 1080)
+```
+
+- [ ] **Step 2: Run both tests and verify RED**
+
+```bash
+PYTHONPATH=backend pytest \
+  backend/tests/test_ffmpeg_burn.py::test_probe_video_layout_falls_back_when_all_crop_probes_error \
+  backend/tests/test_ffmpeg_burn.py::test_probe_video_layout_falls_back_when_only_one_remote_sample_succeeds -q
+```
+
+Expected: both fail with `VideoLayoutProbeError: insufficient successful samples`.
+
+- [ ] **Step 3: Replace the insufficient-sample exception with a warning**
+
+In `probe_video_layout`, replace the `raise VideoLayoutProbeError(...)` block with:
+
+```python
+if successful_samples < 2:
+    logger.warning(
+        "insufficient successful samples; falling back to full frame: "
+        "path=%s successful=%d samples=%s",
+        video_path,
+        successful_samples,
+        samples,
+    )
+    return full_frame
+```
+
+- [ ] **Step 4: Run the focused and layout integration tests**
+
+```bash
+PYTHONPATH=backend pytest \
+  backend/tests/test_ffmpeg_burn.py \
+  backend/tests/test_subtitle_erase_translate_layout.py -q
+```
+
+Expected: 26 tests pass.
+
+### Task 4: Verify, integrate, and deploy
 
 **Files:**
 - Verify: `backend/app/services/ffmpeg_burn.py`
