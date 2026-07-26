@@ -15,7 +15,12 @@ from app.db import Database
 from app.llm.registry import ProviderRegistry
 from app.models import VideoSubtitleEraseJob
 from app.services.aliyun_oss_client import AliyunOSSClient
-from app.services.ffmpeg_burn import burn_subtitles, probe_video_size, probe_video_duration_seconds
+from app.services.ffmpeg_burn import (
+    VideoLayout,
+    burn_subtitles,
+    probe_video_duration_seconds,
+    probe_video_layout,
+)
 from app.services.ims_client import IMSClient
 from app.services.mps_client import MPSClient
 from app.services.rate_limiter import RateLimiter
@@ -242,37 +247,28 @@ async def _burn_local_and_upload_tos(
         _, clean_mp4_key = AliyunOSSClient.parse_oss_uri(clean_mp4_oss)
         await asyncio.to_thread(oss.download_object_to_file, clean_mp4_key, str(input_video_tmp))
 
-        # 2. 探测宽高
-        video_w, video_h = await asyncio.to_thread(probe_video_size, str(input_video_tmp))
-
-        # 3. SRT → ASS（用用户自定义烧录参数）
-        entries = parse_srt(srt_for_burn_text)
-        ass_text = srt_to_ass(
-            entries,
-            video_w=video_w,
-            video_h=video_h,
-            placement_mode=snapshot["placement_mode"],
-            font_size_pct=snapshot["burn_font_size"],
-            font_color=snapshot["burn_font_color"],
-            font_color_opacity=snapshot["burn_font_color_opacity"],
-            pos_x_ratio=snapshot["burn_x"],
-            pos_y_ratio=snapshot["burn_y"],
-            text_width_ratio=snapshot["burn_text_width"],
+        # 2. 探测有效画面并生成 ASS
+        ass_text, video_layout = await asyncio.to_thread(
+            _build_ass_for_video,
+            str(input_video_tmp),
+            srt_for_burn_text,
+            snapshot,
+            duration_seconds=item.get("duration_seconds"),
         )
         ass_tmp.write_text(ass_text, encoding="utf-8")
 
-        # 4. ffmpeg 烧录
+        # 3. ffmpeg 烧录
         await asyncio.to_thread(
             burn_subtitles,
             str(input_video_tmp),
             str(ass_tmp),
             str(output_video_tmp),
             placement_mode=snapshot["placement_mode"],
-            video_w=video_w,
-            video_h=video_h,
+            video_w=video_layout.canvas_width,
+            video_h=video_layout.canvas_height,
         )
 
-        # 5. 上传到 TOS 新加坡（内网，零带宽）
+        # 4. 上传到 TOS 新加坡（内网，零带宽）
         output_tos_prefix = snapshot.get("output_tos_prefix") or ""
         if output_tos_prefix.startswith("tos://"):
             _, output_tos_key_prefix = _parse_tos_uri(output_tos_prefix)
@@ -288,7 +284,7 @@ async def _burn_local_and_upload_tos(
         item["translation_status"] = None  # 本地烧录无 IMS 任务
         await _persist_items(db, job_id, items)
 
-        # 5.5 跨区域复制 SG → 北京 TOS（best-effort，失败不影响 item 成功）
+        # 4.5 跨区域复制 SG → 北京 TOS（best-effort，失败不影响 item 成功）
         if tos_bj is not None:
             try:
                 sg_public_url = item["output_video_tos_public_url"]
@@ -308,7 +304,7 @@ async def _burn_local_and_upload_tos(
                 item["bj_fetch_error"] = str(bj_exc)[:500]
             await _persist_items(db, job_id, items)
     finally:
-        # 6. 删除本地临时文件（无论成功失败都删）
+        # 5. 删除本地临时文件（无论成功失败都删）
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -324,11 +320,54 @@ def _parse_tos_uri(tos_uri: str) -> tuple[str, str]:
     return bucket, key
 
 
-async def _probe_oss_video_size(oss: AliyunOSSClient, oss_uri: str) -> tuple[int, int]:
-    """用 ffprobe 直接探 OSS 公网 HTTPS URL 的视频宽高（不下载到本地）。"""
+def _build_ass_for_video(
+    video_source: str,
+    srt_text: str,
+    snapshot: dict,
+    *,
+    duration_seconds: float | None,
+) -> tuple[str, VideoLayout]:
+    """探测视频布局，并按有效画面边界生成 ASS。"""
+    layout = probe_video_layout(
+        video_source,
+        duration_seconds=duration_seconds,
+    )
+    entries = parse_srt(srt_text)
+    ass_text = srt_to_ass(
+        entries,
+        video_w=layout.canvas_width,
+        video_h=layout.canvas_height,
+        placement_mode=snapshot["placement_mode"],
+        font_size_pct=snapshot["burn_font_size"],
+        font_color=snapshot["burn_font_color"],
+        font_color_opacity=snapshot["burn_font_color_opacity"],
+        pos_x_ratio=snapshot["burn_x"],
+        pos_y_ratio=snapshot["burn_y"],
+        text_width_ratio=snapshot["burn_text_width"],
+        content_x_px=layout.content_x,
+        content_width_px=layout.content_width,
+    )
+    return ass_text, layout
+
+
+async def _build_ass_for_oss_video(
+    oss: AliyunOSSClient,
+    oss_uri: str,
+    srt_text: str,
+    snapshot: dict,
+    *,
+    duration_seconds: float | None,
+) -> tuple[str, VideoLayout]:
+    """通过 OSS 公网 URL 探测布局并生成 ASS，不下载完整视频。"""
     _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
     url = oss.public_url(key)
-    return await asyncio.to_thread(probe_video_size, url)
+    return await asyncio.to_thread(
+        _build_ass_for_video,
+        url,
+        srt_text,
+        snapshot,
+        duration_seconds=duration_seconds,
+    )
 
 
 async def _probe_oss_video_duration(oss: AliyunOSSClient, oss_uri: str) -> float:
@@ -692,19 +731,12 @@ async def _run_translation_for_lang(
             return
     elif snapshot["burn_mode"] == "mps":
         try:
-            video_w, video_h = await _probe_oss_video_size(oss, clean_mp4_oss)
-            entries = parse_srt(srt_for_burn_text)
-            ass_text = srt_to_ass(
-                entries,
-                video_w=video_w,
-                video_h=video_h,
-                placement_mode=snapshot["placement_mode"],
-                font_size_pct=snapshot["burn_font_size"],
-                font_color=snapshot["burn_font_color"],
-                font_color_opacity=snapshot["burn_font_color_opacity"],
-                pos_x_ratio=snapshot["burn_x"],
-                pos_y_ratio=snapshot["burn_y"],
-                text_width_ratio=snapshot["burn_text_width"],
+            ass_text, _video_layout = await _build_ass_for_oss_video(
+                oss,
+                clean_mp4_oss,
+                srt_for_burn_text,
+                snapshot,
+                duration_seconds=item.get("duration_seconds"),
             )
             burn_ass_oss = (
                 f"oss://{oss.bucket_name}/"
@@ -845,20 +877,12 @@ async def _burn_local_and_upload_tos_lang(
         _, clean_mp4_key = AliyunOSSClient.parse_oss_uri(clean_mp4_oss)
         await asyncio.to_thread(oss.download_object_to_file, clean_mp4_key, str(input_video_tmp))
 
-        video_w, video_h = await asyncio.to_thread(probe_video_size, str(input_video_tmp))
-
-        entries = parse_srt(srt_for_burn_text)
-        ass_text = srt_to_ass(
-            entries,
-            video_w=video_w,
-            video_h=video_h,
-            placement_mode=snapshot["placement_mode"],
-            font_size_pct=snapshot["burn_font_size"],
-            font_color=snapshot["burn_font_color"],
-            font_color_opacity=snapshot["burn_font_color_opacity"],
-            pos_x_ratio=snapshot["burn_x"],
-            pos_y_ratio=snapshot["burn_y"],
-            text_width_ratio=snapshot["burn_text_width"],
+        ass_text, video_layout = await asyncio.to_thread(
+            _build_ass_for_video,
+            str(input_video_tmp),
+            srt_for_burn_text,
+            snapshot,
+            duration_seconds=item.get("duration_seconds"),
         )
         ass_tmp.write_text(ass_text, encoding="utf-8")
 
@@ -868,8 +892,8 @@ async def _burn_local_and_upload_tos_lang(
             str(ass_tmp),
             str(output_video_tmp),
             placement_mode=snapshot["placement_mode"],
-            video_w=video_w,
-            video_h=video_h,
+            video_w=video_layout.canvas_width,
+            video_h=video_layout.canvas_height,
         )
 
         output_tos_prefix = snapshot.get("output_tos_prefix") or ""

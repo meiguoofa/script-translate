@@ -121,7 +121,8 @@ def _wrap_text_to_lines(
 ) -> list[str]:
     """按估算宽度切分文本为多行,最多 max_lines 行。
 
-    保留原始 \\n 作为用户主动换行;在每段内按 max_width 估算切分。
+    保留原始 \\n 作为用户主动换行;英文优先按词切分,无空格的 CJK
+    或超长单词则按字符宽度兜底切分。
     超过 max_lines 时,保留前 max_lines 行,末行追加 "…"(若超宽先截到能放下)。
     """
     segments = text.split("\n")
@@ -130,19 +131,38 @@ def _wrap_text_to_lines(
         if not seg:
             wrapped.append("")
             continue
-        cur = ""
-        cur_w = 0.0
-        for ch in seg:
-            ch_w = font_size if _is_wide_char(ch) else font_size * 0.5
-            if cur and cur_w + ch_w > max_width:
-                wrapped.append(cur)
-                cur = ch
-                cur_w = ch_w
-            else:
-                cur += ch
-                cur_w += ch_w
-        if cur:
-            wrapped.append(cur)
+
+        current = ""
+        for word in seg.split():
+            candidate = word if not current else f"{current} {word}"
+            if _estimate_text_width(candidate, font_size) <= max_width:
+                current = candidate
+                continue
+
+            if current:
+                wrapped.append(current)
+                current = ""
+
+            if _estimate_text_width(word, font_size) <= max_width:
+                current = word
+                continue
+
+            # 无空格的 CJK 文本或超长英文单词按字符宽度兜底。
+            chunk = ""
+            chunk_width = 0.0
+            for ch in word:
+                ch_width = font_size if _is_wide_char(ch) else font_size * 0.5
+                if chunk and chunk_width + ch_width > max_width:
+                    wrapped.append(chunk)
+                    chunk = ch
+                    chunk_width = ch_width
+                else:
+                    chunk += ch
+                    chunk_width += ch_width
+            current = chunk
+
+        if current:
+            wrapped.append(current)
 
     if len(wrapped) > max_lines:
         last = wrapped[max_lines - 1]
@@ -155,6 +175,23 @@ def _wrap_text_to_lines(
 
 def _safe_area_height(video_h: int) -> int:
     return max(120, video_h // 10)
+
+
+def _resolve_content_bounds(
+    video_w: int,
+    content_x_px: int | None,
+    content_width_px: int | None,
+) -> tuple[int, int]:
+    """校验有效画面横向边界；无效输入安全回退到完整编码画布。"""
+    if content_x_px is None or content_width_px is None:
+        return 0, video_w
+    if (
+        content_x_px < 0
+        or content_width_px <= 0
+        or content_x_px + content_width_px > video_w
+    ):
+        return 0, video_w
+    return content_x_px, content_width_px
 
 
 def srt_to_ass(
@@ -171,6 +208,8 @@ def srt_to_ass(
     pos_y_ratio: float | None = None,
     text_width_ratio: float = 0.9,
     max_lines: int = 3,
+    content_x_px: int | None = None,
+    content_width_px: int | None = None,
 ) -> str:
     """把 SRT entries 转成 ASS 字幕。
 
@@ -183,9 +222,12 @@ def srt_to_ass(
     - font_size: 字号（绝对像素值）；None 时按 video_h // 30 自动算
     - font_color: hex 颜色，如 "#FFFFFF"
     - font_color_opacity: 0-1
-    - pos_x_ratio / pos_y_ratio: 0-1，相对视频尺寸的字幕位置
-    - text_width_ratio: 0.1-1，字幕文本宽度占比（仅影响 ASS Style MarginL/MarginR）
+    - pos_x_ratio: 0-1，相对有效画面宽度的字幕位置
+    - pos_y_ratio: 0-1，相对视频高度的字幕位置
+    - text_width_ratio: 0.1-1，字幕文本宽度占有效画面宽度的比例
     - max_lines: 单条字幕最多显示行数，超出则末行追加 "…" 截断。
+    - content_x_px / content_width_px: 编码画布内的有效画面横向边界；
+      不传或边界无效时使用完整编码画布。
       \\an2 锚点为底部中点，多行向上延伸；默认配置下不超出视频边界。
     """
 
@@ -207,13 +249,22 @@ def srt_to_ass(
 
     if pos_y_ratio is not None:
         pos_y = int(video_h * pos_y_ratio)
-    pos_x = int(video_w * (pos_x_ratio if pos_x_ratio is not None else 0.5))
+    content_x, content_width = _resolve_content_bounds(
+        video_w, content_x_px, content_width_px
+    )
+    pos_x = content_x + int(
+        content_width * (pos_x_ratio if pos_x_ratio is not None else 0.5)
+    )
 
     # text_width_ratio → ASS Style MarginL/MarginR
-    margin_lr = max(20, int(video_w * (1.0 - text_width_ratio) / 2))
+    inner_margin = max(20, int(content_width * (1.0 - text_width_ratio) / 2))
+    margin_l = content_x + inner_margin
+    margin_r = video_w - (content_x + content_width) + inner_margin
 
-    # 可用文本宽度：视频宽度 * text_width_ratio，留 outline 边距保险
-    max_text_width = max(font_size * 2, video_w * text_width_ratio - outline * 2)
+    # 可用文本宽度：有效画面宽度 * text_width_ratio，留 outline 边距保险
+    max_text_width = max(
+        font_size * 2, content_width * text_width_ratio - outline * 2
+    )
 
     # hex "#FFFFFF" → ASS "&H00BBGGRR"
     ass_color = _hex_to_ass_color(font_color, font_color_opacity)
@@ -232,7 +283,7 @@ def srt_to_ass(
     )
     lines.append(
         f"Style: Default,Noto Sans CJK SC,{font_size},{ass_color},&H00000000,&H66000000,"
-        f"0,0,0,0,100,100,0,0,1,{outline},0,2,{margin_lr},{margin_lr},{margin_v},1"
+        f"0,0,0,0,100,100,0,0,1,{outline},0,2,{margin_l},{margin_r},{margin_v},1"
     )
     lines.append("")
     lines.append("[Events]")
