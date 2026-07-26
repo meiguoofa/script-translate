@@ -6,6 +6,14 @@ from dataclasses import dataclass
 _SRT_TIME = re.compile(
     r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})"
 )
+_ASS_QUOTE_TRANSLATION = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+    }
+)
 
 
 @dataclass(slots=True)
@@ -84,7 +92,8 @@ def _escape_ass_text(text: str) -> str:
     if not text:
         return ""
     return (
-        text.replace("\\", "\\\\")
+        text.translate(_ASS_QUOTE_TRANSLATION)
+        .replace("\\", "\\\\")
         .replace("{", "\\{")
         .replace("}", "\\}")
         .replace("\n", "\\N")

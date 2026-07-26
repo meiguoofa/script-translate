@@ -94,3 +94,22 @@ def test_srt_to_ass_defaults_to_full_canvas_bounds() -> None:
         "Style: Default,Noto Sans CJK SC,36,&H00FFFFFF,&H00000000,&H66000000,"
         "0,0,0,0,100,100,0,0,1,2,0,2,95,95,"
     ) in ass
+
+
+def test_srt_to_ass_normalizes_typographic_quotes_without_mutating_source() -> None:
+    source_text = "‘Hello,’ she said. “It’s temporary.”"
+    entry = SrtEntry(
+        index=1,
+        start_ms=0,
+        end_ms=1000,
+        text=source_text,
+    )
+
+    ass = srt_to_ass([entry], video_w=1920, video_h=1080)
+    dialogue = next(
+        line for line in ass.splitlines() if line.startswith("Dialogue:")
+    )
+
+    assert "'Hello,' she said. \"It's temporary.\"" in dialogue
+    assert all(quote not in dialogue for quote in "‘’“”")
+    assert entry.text == source_text
