@@ -12,6 +12,7 @@ from app.config import Settings
 from app.db import Database
 from app.llm.registry import ProviderRegistry
 from app.services.baidu_vod_governor import BaiduVodGovernor
+from app.services.rate_limiter import RateLimiter
 from app.services.zombie_cleanup import cleanup_zombie_jobs
 from app.services.migrate_items import migrate_items_to_translations
 
@@ -22,6 +23,7 @@ from app.routers import (
     cleaned_scripts,
     downloads,
     health,
+    ims_speech,
     model_catalog,
     prompt_templates,
     scripts,
@@ -123,6 +125,9 @@ def create_app() -> FastAPI:
     app.state.baidu_vod_governor = baidu_vod_governor
     # job_id -> asyncio.Task 映射,用于 stop endpoint 取消正在运行的 runner
     app.state.baidu_vod_tasks: dict[str, asyncio.Task] = {}
+    app.state.ims_speech_tasks: dict[str, asyncio.Task] = {}
+    # 字幕擦除和 IMS 语音翻译共享同一账号级 QPS，避免两个模块各自限流后叠加超限。
+    app.state.ims_rate_limiter = RateLimiter(settings.ims_default_qps)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -143,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(video_super_resolution.router, prefix=settings.api_prefix)
     app.include_router(video_subtitle.router, prefix=settings.api_prefix)
     app.include_router(subtitle_erase.router, prefix=settings.api_prefix)
+    app.include_router(ims_speech.router, prefix=settings.api_prefix)
     app.include_router(baidu_vod.router, prefix=settings.api_prefix)
     app.include_router(starling_drama.router, prefix=settings.api_prefix)
     return app

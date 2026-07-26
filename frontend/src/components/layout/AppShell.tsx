@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useParams } from "react-router-dom";
-import { Captions, Cloud, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap, Clapperboard } from "lucide-react";
+import { Captions, Cloud, Eraser, FileText, Film, History, Languages, Settings, Sparkles, Wand2, Zap, Clapperboard, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -13,6 +13,8 @@ const NAV_ITEMS = [
   { to: "/subtitle/history", label: "字幕历史", icon: History, end: false },
   { to: "/subtitle-erase", label: "字幕擦除翻译", icon: Eraser, end: true },
   { to: "/subtitle-erase/history", label: "擦除翻译历史", icon: History, end: false },
+  { to: "/ims-speech", label: "IMS语音翻译", icon: Volume2, end: true },
+  { to: "/ims-speech/history", label: "IMS语音翻译历史", icon: History, end: false },
   { to: "/baidu-vod", label: "百度VOD翻译", icon: Cloud, end: true },
   { to: "/baidu-vod/history", label: "百度VOD历史", icon: History, end: false },
   { to: "/starling-drama", label: "Starling短剧翻配", icon: Clapperboard, end: true },
@@ -36,6 +38,9 @@ function pageTitle(pathname: string, scriptId?: string) {
   if (pathname === "/subtitle-erase") return { title: "字幕擦除翻译", subtitle: "提取 → 擦除原字幕 → 翻译 → 烧录译文字幕" };
   if (pathname === "/subtitle-erase/history") return { title: "擦除翻译历史", subtitle: "查看所有字幕擦除翻译任务" };
   if (pathname.startsWith("/subtitle-erase/")) return { title: "擦除翻译任务详情", subtitle: "查看各阶段进度并下载" };
+  if (pathname === "/ims-speech") return { title: "IMS语音翻译", subtitle: "阿里云 IMS 一站式字幕擦除、语音翻译、配音与成片输出" };
+  if (pathname === "/ims-speech/history") return { title: "IMS语音翻译历史", subtitle: "查看所有 IMS 语音级视频翻译任务" };
+  if (pathname.startsWith("/ims-speech/")) return { title: "IMS语音翻译详情", subtitle: "查看各集、各目标语言进度与成片产物" };
   if (pathname === "/baidu-vod") return { title: "百度VOD翻译", subtitle: "字幕擦除 + 翻译 + 语音翻译(百度云 VOD)" };
   if (pathname === "/baidu-vod/history") return { title: "百度VOD历史", subtitle: "查看所有百度VOD翻译任务" };
   if (pathname.startsWith("/baidu-vod/")) return { title: "百度VOD任务详情", subtitle: "查看翻译进度并下载结果" };

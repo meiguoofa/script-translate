@@ -19,6 +19,9 @@ import type {
   SubtitleEraseMultipartUploadUrlResponse,
   SubtitleEraseRerunRequest,
   SubtitleEraseUploadUrlResponse,
+  ImsSpeechJobCreateInput,
+  ImsSpeechJobOut,
+  ImsSpeechJobSummary,
   BaiduVodUploadUrlResponse,
   BaiduVodMultipartUploadUrlResponse,
   BaiduVodCompleteMultipartInput,
@@ -392,6 +395,101 @@ export async function getSubtitleEraseSettings() {
 
 export async function saveSubtitleEraseSettings(params: Record<string, unknown>) {
   const response = await client.put<Record<string, unknown>>("/subtitle-erase/settings", params);
+  return response.data;
+}
+
+// ===== 阿里云 IMS 一站式语音级视频翻译 =====
+
+export async function requestImsSpeechUploadUrls(payload: {
+  files: { filename: string; content_type: string }[];
+  job_id?: string;
+}) {
+  const response = await client.post<SubtitleEraseUploadUrlResponse>(
+    "/ims-speech-translation/upload-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function requestImsSpeechMultipartUrls(payload: {
+  filename: string;
+  content_type: string;
+  file_size: number;
+  job_id?: string;
+  index?: number;
+}) {
+  const response = await client.post<SubtitleEraseMultipartUploadUrlResponse>(
+    "/ims-speech-translation/upload-multipart-url",
+    payload
+  );
+  return response.data;
+}
+
+export async function completeImsSpeechMultipart(
+  payload: SubtitleEraseCompleteMultipartInput
+) {
+  const response = await client.post<SubtitleEraseCompleteMultipartResponse>(
+    "/ims-speech-translation/complete-multipart",
+    payload
+  );
+  return response.data;
+}
+
+export async function abortImsSpeechMultipart(key: string, upload_id: string) {
+  await client.post("/ims-speech-translation/abort-multipart", { key, upload_id });
+}
+
+export async function createImsSpeechJob(payload: ImsSpeechJobCreateInput) {
+  const response = await client.post<ImsSpeechJobOut>(
+    "/ims-speech-translation",
+    payload
+  );
+  return response.data;
+}
+
+export async function getImsSpeechJob(jobId: string) {
+  const response = await client.get<ImsSpeechJobOut>(
+    `/ims-speech-translation/${jobId}`
+  );
+  return response.data;
+}
+
+export async function listImsSpeechJobs(
+  params?: { limit?: number; offset?: number; q?: string }
+) {
+  const response = await client.get<ImsSpeechJobSummary[]>(
+    "/ims-speech-translation",
+    { params }
+  );
+  return response.data;
+}
+
+export async function retryImsSpeechJob(jobId: string) {
+  const response = await client.post<ImsSpeechJobOut>(
+    `/ims-speech-translation/${jobId}/retry`
+  );
+  return response.data;
+}
+
+export async function stopImsSpeechJob(jobId: string) {
+  const response = await client.post<ImsSpeechJobOut>(
+    `/ims-speech-translation/${jobId}/stop`
+  );
+  return response.data;
+}
+
+export async function getImsSpeechSettings() {
+  const response = await client.get<Record<string, unknown>>(
+    "/ims-speech-translation/settings"
+  );
+  return response.data;
+}
+
+export async function saveImsSpeechSettings(params: Record<string, unknown>) {
+  const response = await client.put<Record<string, unknown>>(
+    "/ims-speech-translation/settings",
+    params
+  );
   return response.data;
 }
 

@@ -19,6 +19,9 @@ import { BaiduVodHistoryPage } from "./pages/BaiduVodHistoryPage";
 import { StarlingDramaPage } from "./pages/StarlingDramaPage";
 import { StarlingDramaHistoryPage } from "./pages/StarlingDramaHistoryPage";
 import { StarlingDramaDetailPage } from "./pages/StarlingDramaDetailPage";
+import { ImsSpeechPage } from "./pages/ImsSpeechPage";
+import { ImsSpeechHistoryPage } from "./pages/ImsSpeechHistoryPage";
+import { ImsSpeechDetailPage } from "./pages/ImsSpeechDetailPage";
 import { SubtitleHistoryPage } from "./pages/SubtitleHistoryPage";
 import { SubtitlePage } from "./pages/SubtitlePage";
 import { UploadPage } from "./pages/UploadPage";
@@ -45,6 +48,9 @@ export default function App() {
           <Route path="/subtitle-erase" element={<SubtitleErasePage />} />
           <Route path="/subtitle-erase/history" element={<SubtitleEraseHistoryPage />} />
           <Route path="/subtitle-erase/:jobId" element={<SubtitleEraseDetailPage />} />
+          <Route path="/ims-speech" element={<ImsSpeechPage />} />
+          <Route path="/ims-speech/history" element={<ImsSpeechHistoryPage />} />
+          <Route path="/ims-speech/:jobId" element={<ImsSpeechDetailPage />} />
           <Route path="/baidu-vod" element={<BaiduVodPage />} />
           <Route path="/baidu-vod/history" element={<BaiduVodHistoryPage />} />
           <Route path="/baidu-vod/:jobId" element={<BaiduVodDetailPage />} />

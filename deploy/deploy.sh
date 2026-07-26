@@ -107,6 +107,7 @@ deploy_backend() {
   # 保留运行时数据：data/ storage/ .env 不被覆盖或删除
   run rsync -a --delete \
     --exclude=".env" \
+    --exclude=".venv/" \
     --exclude="data/" \
     --exclude="storage/" \
     --exclude="__pycache__/" \
@@ -233,8 +234,14 @@ smoke_test() {
     | head -1 | awk '{print $2}' | tr -d ';' || true)
   port="${port:-8900}"
   log "==> 冒烟测试 http://127.0.0.1:${port}/api/health"
-  local code
-  code=$(curl -sk -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}/api/health" || echo "000")
+  local code="000"
+  local attempt
+  for attempt in {1..15}; do
+    code=$(curl -sk -o /dev/null -w "%{http_code}" \
+      "http://127.0.0.1:${port}/api/health" || echo "000")
+    [[ "$code" == "200" ]] && break
+    sleep 1
+  done
   if [[ "$code" == "200" ]]; then
     ok "/api/health 返回 200"
   else

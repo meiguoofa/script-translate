@@ -708,6 +708,159 @@ class SubtitleEraseJobSummary(BaseModel):
     updated_at: UTCDatetime
 
 
+# ===== 阿里云 IMS 一站式语音级视频翻译 =====
+
+IMS_SPEECH_TARGET_LANGUAGES = {
+    "zh", "zh-tw", "en", "ja", "ko", "yue", "de", "fr", "es", "ar",
+    "tr", "ru", "pt", "vi", "ms", "th", "id", "sichuan", "tianjin",
+}
+
+
+class ImsSpeechRect(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def within_canvas(self) -> "ImsSpeechRect":
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("区域必须完全位于视频画布内")
+        return self
+
+    def as_list(self) -> list[float]:
+        return [self.x, self.y, self.width, self.height]
+
+
+class ImsSpeechJobItemSpec(BaseModel):
+    filename: str
+    oss_uri: str
+    public_url: str
+    key: str | None = None
+    drama_index: int = Field(default=0, ge=0)
+    episode_index: int = Field(default=0, ge=0)
+
+
+class ImsSpeechJobCreateRequest(BaseModel):
+    job_id: str
+    title: str
+    source_language: str
+    target_languages: list[str]
+    text_source: str = Field(pattern="^(ASR|OCR|OCR_ASR)$")
+    detext_mode: str = Field(default="auto", pattern="^(none|auto|custom)$")
+    detext_areas: list[ImsSpeechRect] | None = None
+    ocr_area: ImsSpeechRect | None = None
+    bilingual_subtitle: bool = False
+    subtitle_enabled: bool = True
+    skip_song: bool = False
+    font_color: str = Field(default="#FFFFFF", pattern=r"^#[0-9A-Fa-f]{6}$")
+    font_color_opacity: float = Field(default=1, ge=0, le=1)
+    subtitle_y: float = Field(default=0.76, ge=0, le=1)
+    items: list[ImsSpeechJobItemSpec]
+    original_filenames: list[str] | None = None
+
+    @field_validator("target_languages")
+    @classmethod
+    def validate_target_languages(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(v.strip() for v in values if v.strip()))
+        if not normalized:
+            raise ValueError("target_languages 必须至少包含一个目标语言")
+        unsupported = [v for v in normalized if v not in IMS_SPEECH_TARGET_LANGUAGES]
+        if unsupported:
+            raise ValueError(f"IMS 语音翻译不支持目标语言: {unsupported}")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_recognizer_and_regions(self) -> "ImsSpeechJobCreateRequest":
+        allowed_sources = (
+            {"zh", "en", "fr", "tr"}
+            if self.text_source == "ASR"
+            else {"zh", "en"}
+        )
+        if self.source_language not in allowed_sources:
+            raise ValueError(
+                f"{self.text_source} 不支持源语言 {self.source_language}"
+            )
+        if self.detext_mode == "custom" and not self.detext_areas:
+            raise ValueError("自定义擦除模式必须提供 detext_areas")
+        if not self.items:
+            raise ValueError("视频列表不能为空")
+        return self
+
+
+class ImsSpeechTranslationItemOut(BaseModel):
+    status: str = "pending"
+    error: str | None = None
+    media_url: str | None = None
+    media_id: str | None = None
+    translated_audio_url: str | None = None
+    translated_audio_media_id: str | None = None
+    subtitle_url: str | None = None
+    subtitle_signed_url: str | None = None
+    fix_subtitle_url: str | None = None
+    fix_subtitle_media_id: str | None = None
+    bilingual_subtitle_url: str | None = None
+    bilingual_subtitle_media_id: str | None = None
+    speech_translation_job_id: str | None = None
+
+
+class ImsSpeechJobItemOut(BaseModel):
+    index: int
+    drama_index: int
+    episode_index: int
+    filename: str
+    input_oss_uri: str
+    input_public_url: str
+    ims_job_id: str | None = None
+    ims_status: str | None = None
+    detext_video_url: str | None = None
+    detext_video_media_id: str | None = None
+    translations: dict[str, ImsSpeechTranslationItemOut]
+    stage: str = "pending"
+    status: str = "pending"
+    error: str | None = None
+
+
+class ImsSpeechJobOut(BaseModel):
+    id: str
+    title: str
+    drama_count: int
+    video_count: int
+    source_language: str
+    target_languages: list[str]
+    text_source: str
+    config: dict
+    items: list[ImsSpeechJobItemOut]
+    original_filenames: list[str] | None
+    output_oss_prefix: str
+    status: str
+    progress_message: str | None
+    error_message: str | None
+    succeeded_count: int
+    partial_failed_count: int
+    failed_count: int
+    submitted_at: UTCDatetime | None
+    completed_at: UTCDatetime | None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
+
+
+class ImsSpeechJobSummary(BaseModel):
+    id: str
+    title: str
+    drama_count: int
+    video_count: int
+    source_language: str
+    target_languages: list[str]
+    text_source: str
+    status: str
+    succeeded_count: int
+    partial_failed_count: int
+    failed_count: int
+    error_message: str | None
+    created_at: UTCDatetime
+
+
 # ===== 百度云 VOD 视频翻译(字幕擦除 + 翻译 + 语音翻译)=====
 
 

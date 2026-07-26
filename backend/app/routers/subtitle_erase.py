@@ -533,7 +533,13 @@ async def create_subtitle_erase_job(
     state = request.app.state
 
     async def _runner() -> None:
-        await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
+        await run_subtitle_erase_translate_job(
+            state.db,
+            state.settings,
+            state.registry,
+            job.id,
+            global_rate_limiter=state.ims_rate_limiter,
+        )
 
     background_tasks.add_task(_runner)
     return _job_to_out(job, settings)
@@ -687,7 +693,12 @@ async def retry_failed_items(
 
     async def _runner() -> None:
         await run_subtitle_erase_translate_job(
-            state.db, state.settings, state.registry, job.id, only_indices=failed_indices
+            state.db,
+            state.settings,
+            state.registry,
+            job.id,
+            only_indices=failed_indices,
+            global_rate_limiter=state.ims_rate_limiter,
         )
 
     background_tasks.add_task(_runner)
@@ -793,7 +804,13 @@ async def rerun_all_items(
     state = request.app.state
 
     async def _runner() -> None:
-        await run_subtitle_erase_translate_job(state.db, state.settings, state.registry, job.id)
+        await run_subtitle_erase_translate_job(
+            state.db,
+            state.settings,
+            state.registry,
+            job.id,
+            global_rate_limiter=state.ims_rate_limiter,
+        )
 
     background_tasks.add_task(_runner)
     return _job_to_out(job, settings)
@@ -812,4 +829,3 @@ async def list_subtitle_erase_jobs(
     stmt = stmt.order_by(VideoSubtitleEraseJob.created_at.desc()).limit(limit).offset(offset)
     rows = await session.scalars(stmt)
     return [_job_to_summary(j) for j in rows]
-

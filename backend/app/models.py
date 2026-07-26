@@ -318,6 +318,32 @@ class VideoBaiduVodJob(Base):
     )
 
 
+class VideoImsSpeechJob(Base):
+    """阿里云 IMS 一站式语音级视频翻译任务。"""
+
+    __tablename__ = "video_ims_speech_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    drama_count: Mapped[int] = mapped_column(Integer, default=0)
+    video_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_language: Mapped[str] = mapped_column(String(16))
+    target_langs_json: Mapped[str] = mapped_column(String(255), default="[]")
+    text_source: Mapped[str] = mapped_column(String(16), default="ASR")
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
+    items_json: Mapped[str] = mapped_column(Text)
+    original_filenames_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_oss_prefix: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class StarlingDramaJob(Base):
     """火山引擎 Starling 短剧全链路翻配任务。
 

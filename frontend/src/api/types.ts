@@ -546,6 +546,116 @@ export type SubtitleEraseRerunRequest = {
   force_recaption?: boolean;
 };
 
+// ===== 阿里云 IMS 一站式语音级视频翻译 =====
+
+export type ImsSpeechRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ImsSpeechTranslationItemOut = {
+  status: "pending" | "running" | "succeeded" | "failed";
+  error: string | null;
+  media_url: string | null;
+  media_id: string | null;
+  translated_audio_url: string | null;
+  translated_audio_media_id: string | null;
+  subtitle_url: string | null;
+  subtitle_signed_url: string | null;
+  fix_subtitle_url: string | null;
+  fix_subtitle_media_id: string | null;
+  bilingual_subtitle_url: string | null;
+  bilingual_subtitle_media_id: string | null;
+  speech_translation_job_id: string | null;
+};
+
+export type ImsSpeechJobItemOut = {
+  index: number;
+  drama_index: number;
+  episode_index: number;
+  filename: string;
+  input_oss_uri: string;
+  input_public_url: string;
+  ims_job_id: string | null;
+  ims_status: string | null;
+  detext_video_url: string | null;
+  detext_video_media_id: string | null;
+  translations: Record<string, ImsSpeechTranslationItemOut>;
+  stage: string;
+  status: "pending" | "running" | "succeeded" | "partial_failed" | "failed";
+  error: string | null;
+};
+
+export type ImsSpeechJobOut = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  source_language: string;
+  target_languages: string[];
+  text_source: "ASR" | "OCR" | "OCR_ASR";
+  config: Record<string, unknown>;
+  items: ImsSpeechJobItemOut[];
+  original_filenames: string[] | null;
+  output_oss_prefix: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress_message: string | null;
+  error_message: string | null;
+  succeeded_count: number;
+  partial_failed_count: number;
+  failed_count: number;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ImsSpeechJobSummary = {
+  id: string;
+  title: string;
+  drama_count: number;
+  video_count: number;
+  source_language: string;
+  target_languages: string[];
+  text_source: "ASR" | "OCR" | "OCR_ASR";
+  status: "pending" | "running" | "completed" | "failed";
+  succeeded_count: number;
+  partial_failed_count: number;
+  failed_count: number;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type ImsSpeechJobItemInput = {
+  filename: string;
+  oss_uri: string;
+  public_url: string;
+  key?: string | null;
+  drama_index: number;
+  episode_index: number;
+};
+
+export type ImsSpeechJobCreateInput = {
+  job_id: string;
+  title: string;
+  source_language: string;
+  target_languages: string[];
+  text_source: "ASR" | "OCR" | "OCR_ASR";
+  detext_mode: "none" | "auto" | "custom";
+  detext_areas?: ImsSpeechRect[] | null;
+  ocr_area?: ImsSpeechRect | null;
+  bilingual_subtitle: boolean;
+  subtitle_enabled: boolean;
+  skip_song: boolean;
+  font_color: string;
+  font_color_opacity: number;
+  subtitle_y: number;
+  items: ImsSpeechJobItemInput[];
+  original_filenames?: string[] | null;
+};
+
 
 // ===== 百度云 VOD 视频翻译(字幕擦除 + 翻译 + 语音翻译)=====
 

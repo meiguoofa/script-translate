@@ -7,6 +7,7 @@ from app.models import (
     CleanedScriptJob,
     PromptTemplate,
     StarlingDramaJob,
+    VideoImsSpeechJob,
     VideoScriptJob,
     VideoSubtitleEraseJob,
     VideoSubtitleJob,
@@ -30,6 +31,7 @@ CREATE_APP_SETTINGS_VERSION = "20260706_001_create_app_settings"
 MIGRATE_BURN_FONT_SIZE_PCT_VERSION = "20260709_001_migrate_burn_font_size_pct"
 CREATE_STARLING_DRAMA_JOBS_VERSION = "20260719_001_create_starling_drama_jobs"
 ADD_STARLING_DRAMA_OUTPUT_TOS_PREFIX_VERSION = "20260719_002_add_starling_drama_output_tos_prefix"
+CREATE_VIDEO_IMS_SPEECH_JOBS_VERSION = "20260726_001_create_video_ims_speech_jobs"
 
 
 metadata = MetaData()
@@ -116,6 +118,12 @@ async def run_migrations(connection: AsyncConnection) -> None:
         await connection.run_sync(_add_starling_drama_output_tos_prefix)
         await connection.execute(
             schema_migrations.insert().values(version=ADD_STARLING_DRAMA_OUTPUT_TOS_PREFIX_VERSION)
+        )
+
+    if CREATE_VIDEO_IMS_SPEECH_JOBS_VERSION not in applied:
+        await connection.run_sync(_create_video_ims_speech_jobs)
+        await connection.execute(
+            schema_migrations.insert().values(version=CREATE_VIDEO_IMS_SPEECH_JOBS_VERSION)
         )
 
     await _seed_default_prompt(connection)
@@ -211,6 +219,13 @@ def _add_starling_drama_output_tos_prefix(sync_connection) -> None:
         sync_connection.execute(text(
             "ALTER TABLE starling_drama_jobs ADD COLUMN output_tos_prefix TEXT"
         ))
+
+
+def _create_video_ims_speech_jobs(sync_connection) -> None:
+    inspector = inspect(sync_connection)
+    if VideoImsSpeechJob.__tablename__ in inspector.get_table_names():
+        return
+    VideoImsSpeechJob.__table__.create(sync_connection, checkfirst=True)
 
 
 async def _seed_default_prompt(connection: AsyncConnection) -> None:

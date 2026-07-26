@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from app.db import Database
 from app.models import (
     StarlingDramaJob,
+    VideoImsSpeechJob,
     VideoScriptJob,
     VideoSubtitleEraseJob,
     VideoSubtitleJob,
@@ -44,6 +45,7 @@ async def cleanup_zombie_jobs(db: Database) -> int:
         VideoSubtitleEraseJob,
         VideoBaiduVodJob,
         StarlingDramaJob,
+        VideoImsSpeechJob,
     ]
 
     async with await db.session() as session:

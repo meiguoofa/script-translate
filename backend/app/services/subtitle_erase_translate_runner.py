@@ -942,6 +942,7 @@ async def run_subtitle_erase_translate_job(
     job_id: str,
     *,
     only_indices: list[int] | None = None,
+    global_rate_limiter: RateLimiter | None = None,
 ) -> None:
     """后台任务入口：编排多剧 + 单剧顺序。"""
 
@@ -962,7 +963,11 @@ async def run_subtitle_erase_translate_job(
             return
 
         rate_limiter = RateLimiter(snapshot["qps"])
-        ims = IMSClient(settings, rate_limiter=rate_limiter)
+        ims = IMSClient(
+            settings,
+            rate_limiter=rate_limiter,
+            global_rate_limiter=global_rate_limiter,
+        )
 
         items: list[dict] = snapshot["items"]
         indices = only_indices if only_indices is not None else list(range(len(items)))

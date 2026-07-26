@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     max_concurrent_subtitle_erase_jobs: int = 3
     oss_subtitle_erase_input_prefix: str = "subtitle-erase-input"
     oss_subtitle_erase_output_prefix: str = "subtitle-erase-output"
+    oss_ims_speech_input_prefix: str = "ims-speech-input"
+    oss_ims_speech_output_prefix: str = "ims-speech-output"
+    max_concurrent_ims_speech_jobs: int = Field(default=3, ge=1)
+    max_concurrent_ims_speech_episodes: int = Field(default=4, ge=1)
 
     # 阿里云 MPS（媒体处理，字幕硬压烧录）
     aliyun_mps_endpoint: str = "mts.cn-shanghai.aliyuncs.com"
