@@ -17,6 +17,7 @@ from app.models import VideoSubtitleEraseJob
 from app.services.aliyun_oss_client import AliyunOSSClient
 from app.services.ffmpeg_burn import (
     VideoLayout,
+    VideoLayoutProbeError,
     burn_subtitles,
     probe_video_duration_seconds,
     probe_video_layout,
@@ -33,6 +34,7 @@ from app.services.tos_singapore_client import TOSSingaporeClient
 logger = logging.getLogger("subtitle_erase_translate_runner")
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+_VIDEO_LAYOUT_CACHE_VERSION = 1
 
 
 def _safe_filename(name: str) -> str:
@@ -50,6 +52,7 @@ SHARED_FIELDS = (
     "source_srt_oss_uri", "cleaned_srt_oss_uri",
     "detext_job_id", "detext_status",
     "clean_video_oss_uri", "clean_video_public_url",
+    "video_layout",
     "warning",
 )
 # 每语言独立产物(翻译 + 烧录)。retry 单语言失败项时重置。
@@ -332,8 +335,17 @@ def _build_ass_for_video(
         video_source,
         duration_seconds=duration_seconds,
     )
+    return _build_ass_from_layout(srt_text, snapshot, layout), layout
+
+
+def _build_ass_from_layout(
+    srt_text: str,
+    snapshot: dict,
+    layout: VideoLayout,
+) -> str:
+    """使用已确定的有效画面生成 ASS，不再访问视频。"""
     entries = parse_srt(srt_text)
-    ass_text = srt_to_ass(
+    return srt_to_ass(
         entries,
         video_w=layout.canvas_width,
         video_h=layout.canvas_height,
@@ -347,27 +359,116 @@ def _build_ass_for_video(
         content_x_px=layout.content_x,
         content_width_px=layout.content_width,
     )
-    return ass_text, layout
 
 
-async def _build_ass_for_oss_video(
+async def _probe_oss_video_layout(
     oss: AliyunOSSClient,
     oss_uri: str,
-    srt_text: str,
-    snapshot: dict,
     *,
     duration_seconds: float | None,
-) -> tuple[str, VideoLayout]:
-    """通过 OSS 公网 URL 探测布局并生成 ASS，不下载完整视频。"""
-    _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
-    url = oss.public_url(key)
-    return await asyncio.to_thread(
-        _build_ass_for_video,
-        url,
-        srt_text,
-        snapshot,
+) -> VideoLayout:
+    """通过 OSS 公网 URL 探测布局，不把视频保存到本地。"""
+    try:
+        _, key = AliyunOSSClient.parse_oss_uri(oss_uri)
+        url = oss.public_url(key)
+        return await asyncio.to_thread(
+            probe_video_layout,
+            url,
+            duration_seconds=duration_seconds,
+        )
+    except VideoLayoutProbeError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise VideoLayoutProbeError(
+            f"OSS video layout probe failed: source={oss_uri}"
+        ) from exc
+
+
+def _video_layout_to_cache(
+    layout: VideoLayout,
+    source_oss_uri: str,
+) -> dict[str, int | str]:
+    return {
+        "version": _VIDEO_LAYOUT_CACHE_VERSION,
+        "source_oss_uri": source_oss_uri,
+        "canvas_width": layout.canvas_width,
+        "canvas_height": layout.canvas_height,
+        "content_x": layout.content_x,
+        "content_y": layout.content_y,
+        "content_width": layout.content_width,
+        "content_height": layout.content_height,
+    }
+
+
+def _video_layout_from_cache(
+    value: object,
+    source_oss_uri: str,
+) -> VideoLayout | None:
+    if not isinstance(value, dict):
+        return None
+    if (
+        type(value.get("version")) is not int
+        or value.get("version") != _VIDEO_LAYOUT_CACHE_VERSION
+        or value.get("source_oss_uri") != source_oss_uri
+    ):
+        return None
+
+    field_names = (
+        "canvas_width",
+        "canvas_height",
+        "content_x",
+        "content_y",
+        "content_width",
+        "content_height",
+    )
+    if any(type(value.get(field)) is not int for field in field_names):
+        return None
+
+    layout = VideoLayout(
+        canvas_width=value["canvas_width"],
+        canvas_height=value["canvas_height"],
+        content_x=value["content_x"],
+        content_y=value["content_y"],
+        content_width=value["content_width"],
+        content_height=value["content_height"],
+    )
+    if (
+        layout.canvas_width <= 0
+        or layout.canvas_height <= 0
+        or layout.content_x < 0
+        or layout.content_y < 0
+        or layout.content_width <= 0
+        or layout.content_height <= 0
+        or layout.content_x + layout.content_width > layout.canvas_width
+        or layout.content_y + layout.content_height > layout.canvas_height
+    ):
+        return None
+    return layout
+
+
+async def _get_or_probe_oss_video_layout(
+    oss: AliyunOSSClient,
+    item: dict,
+    source_oss_uri: str,
+    *,
+    duration_seconds: float | None,
+) -> tuple[VideoLayout, bool]:
+    cached = _video_layout_from_cache(item.get("video_layout"), source_oss_uri)
+    if cached is not None:
+        logger.info(
+            "reuse effective picture layout: source=%s layout=%s",
+            source_oss_uri,
+            cached,
+        )
+        return cached, False
+
+    layout = await _probe_oss_video_layout(
+        oss,
+        source_oss_uri,
         duration_seconds=duration_seconds,
     )
+    item["video_layout"] = _video_layout_to_cache(layout, source_oss_uri)
+    return layout, True
 
 
 async def _probe_oss_video_duration(oss: AliyunOSSClient, oss_uri: str) -> float:
@@ -596,11 +697,31 @@ async def _run_episode_impl(
     item["status"] = "running"
     await _persist_items(db, job_id, items)
 
+    shared_video_layout: VideoLayout | None = None
+    if snapshot["burn_mode"] == "mps":
+        try:
+            shared_video_layout, layout_created = await _get_or_probe_oss_video_layout(
+                oss,
+                item,
+                clean_mp4_oss,
+                duration_seconds=item.get("duration_seconds"),
+            )
+            if layout_created:
+                await _persist_items(db, job_id, items)
+        except VideoLayoutProbeError as exc:
+            logger.exception("remote video layout probe %s/%d failed", job_id, index)
+            item["status"] = "failed"
+            item["stage"] = "done"
+            item["error"] = f"远程视频布局探测失败，可重试: {exc}"[:1000]
+            await _persist_items(db, job_id, items)
+            return
+
     for lang in target_langs:
         await _run_translation_for_lang(
             db, job_id, ims, oss, registry, settings, snapshot, items, index,
             lang, cleaned_srt_oss, cleaned_srt_text, clean_mp4_oss,
             output_prefix_key, drama_index, episode_index, filename, name_prefix,
+            video_layout=shared_video_layout,
         )
 
     # ===== 汇总 item 级状态 =====
@@ -641,6 +762,8 @@ async def _run_translation_for_lang(
     episode_index: int,
     filename: str,
     name_prefix: str,
+    *,
+    video_layout: VideoLayout | None,
 ) -> None:
     """单语言的翻译 + 烧录。产物写入 item["translations"][lang]。失败标 failed,不抛异常。"""
 
@@ -731,12 +854,12 @@ async def _run_translation_for_lang(
             return
     elif snapshot["burn_mode"] == "mps":
         try:
-            ass_text, _video_layout = await _build_ass_for_oss_video(
-                oss,
-                clean_mp4_oss,
+            if video_layout is None:
+                raise RuntimeError("MPS 烧录缺少共享视频布局")
+            ass_text = _build_ass_from_layout(
                 srt_for_burn_text,
                 snapshot,
-                duration_seconds=item.get("duration_seconds"),
+                video_layout,
             )
             burn_ass_oss = (
                 f"oss://{oss.bucket_name}/"

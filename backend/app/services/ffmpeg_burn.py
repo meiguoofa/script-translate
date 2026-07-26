@@ -10,6 +10,11 @@ from app.services.srt_utils import safe_area_height
 logger = logging.getLogger("ffmpeg_burn")
 
 _CROP_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
+_CROP_PROBE_ATTEMPTS = 2
+
+
+class VideoLayoutProbeError(RuntimeError):
+    """Raised when remote video layout probing cannot produce a reliable result."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,49 +76,64 @@ def _probe_crop_sample(
     video_path: str,
     timestamp_seconds: float,
 ) -> tuple[int, int, int, int] | None:
-    """对一个短片段运行 cropdetect；失败时返回 None。"""
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-ss",
-                f"{max(0.0, timestamp_seconds):.3f}",
-                "-i",
+    """对一个短片段运行 cropdetect；瞬时失败时重试一次。"""
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-ss",
+        f"{max(0.0, timestamp_seconds):.3f}",
+        "-i",
+        video_path,
+        "-t",
+        "0.5",
+        "-vf",
+        "cropdetect=limit=24:round=2:reset=0",
+        "-an",
+        "-sn",
+        "-f",
+        "null",
+        "-",
+    ]
+    last_error: Exception | None = None
+    for attempt in range(1, _CROP_PROBE_ATTEMPTS + 1):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            logger.warning(
+                "cropdetect sample failed: path=%s timestamp=%.3f attempt=%d/%d",
                 video_path,
-                "-t",
-                "0.5",
-                "-vf",
-                "cropdetect=limit=24:round=2:reset=0",
-                "-an",
-                "-sn",
-                "-f",
-                "null",
-                "-",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "cropdetect sample failed: path=%s timestamp=%.3f",
-            video_path,
-            timestamp_seconds,
-            exc_info=True,
-        )
-        return None
+                timestamp_seconds,
+                attempt,
+                _CROP_PROBE_ATTEMPTS,
+                exc_info=True,
+            )
+            continue
 
-    if result.returncode != 0:
+        if result.returncode == 0:
+            return _parse_cropdetect_output(f"{result.stdout}\n{result.stderr}")
+
+        last_error = RuntimeError(f"ffmpeg exited with code {result.returncode}")
         logger.warning(
-            "cropdetect returned code=%s: path=%s timestamp=%.3f stderr=%s",
+            "cropdetect returned code=%s: path=%s timestamp=%.3f "
+            "attempt=%d/%d stderr=%s",
             result.returncode,
             video_path,
             timestamp_seconds,
+            attempt,
+            _CROP_PROBE_ATTEMPTS,
             result.stderr[-500:],
         )
-        return None
-    return _parse_cropdetect_output(f"{result.stdout}\n{result.stderr}")
+
+    raise VideoLayoutProbeError(
+        f"cropdetect sample failed after {_CROP_PROBE_ATTEMPTS} attempts: "
+        f"timestamp={timestamp_seconds:.3f}"
+    ) from last_error
 
 
 def _is_pillarbox_crop(
@@ -183,12 +203,18 @@ def probe_video_layout(
     *,
     duration_seconds: float | None = None,
 ) -> VideoLayout:
-    """探测画布中的稳定竖屏有效画面；任何不确定性都回退到完整画布。
+    """探测画布中的稳定竖屏有效画面。
 
     先采样 10% 和 50% 位置；若结果不一致，再用 90% 位置仲裁。
     只有至少两个有效样本相互吻合时才采用 cropdetect 结果。
+    远程读取失败导致成功样本不足时抛错，避免误把黑边算入字幕宽度。
     """
-    canvas_width, canvas_height = probe_video_size(video_path)
+    try:
+        canvas_width, canvas_height = probe_video_size(video_path)
+    except Exception as exc:  # noqa: BLE001
+        raise VideoLayoutProbeError(
+            f"video size probe failed: path={video_path}"
+        ) from exc
     full_frame = VideoLayout.full_frame(canvas_width, canvas_height)
 
     if duration_seconds is None or duration_seconds <= 0:
@@ -203,12 +229,13 @@ def probe_video_layout(
         timestamps = [0.0, 5.0, 10.0]
 
     samples: list[tuple[int, int, int, int] | None] = []
+    successful_samples = 0
     chosen: tuple[int, int, int, int] | None = None
     for timestamp in timestamps:
         try:
             crop = _probe_crop_sample(video_path, timestamp)
         except Exception:  # noqa: BLE001
-            # 允许测试替身或未来实现抛错，探测永远不阻断烧录。
+            # 保留失败样本，最终由成功样本数量决定是否允许安全回退。
             logger.warning(
                 "cropdetect sample raised unexpectedly: path=%s timestamp=%.3f",
                 video_path,
@@ -216,6 +243,8 @@ def probe_video_layout(
                 exc_info=True,
             )
             crop = None
+        else:
+            successful_samples += 1
         if crop is not None and _is_pillarbox_crop(
             crop, canvas_width, canvas_height
         ):
@@ -246,6 +275,12 @@ def probe_video_layout(
                     break
             if chosen is not None:
                 break
+
+    if successful_samples < 2:
+        raise VideoLayoutProbeError(
+            "insufficient successful samples for video layout detection: "
+            f"path={video_path} successful={successful_samples} samples={samples}"
+        )
 
     if chosen is None:
         logger.info(

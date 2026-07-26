@@ -38,6 +38,13 @@ from app.services.zombie_cleanup import ABORT_ERROR_MSG
 router = APIRouter(prefix="/subtitle-erase", tags=["subtitle-erase"])
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+REDETEXT_FIELDS = (
+    "detext_job_id",
+    "detext_status",
+    "clean_video_oss_uri",
+    "clean_video_public_url",
+    "video_layout",
+)
 
 
 def _safe_filename(name: str) -> str:
@@ -475,6 +482,7 @@ async def create_subtitle_erase_job(
                 "detext_status": None,
                 "clean_video_oss_uri": None,
                 "clean_video_public_url": None,
+                "video_layout": None,
                 "warning": None,
                 # 每语言独立产物
                 "translations": {},
@@ -771,7 +779,7 @@ async def rerun_all_items(
         if not isinstance(item.get("translations"), dict):
             item["translations"] = {}
         if payload.force_redetext:
-            for f in ("detext_job_id", "detext_status", "clean_video_oss_uri", "clean_video_public_url"):
+            for f in REDETEXT_FIELDS:
                 item[f] = None
         if payload.force_recaption:
             for f in ("caption_job_id", "caption_status", "source_srt_oss_uri", "cleaned_srt_oss_uri"):

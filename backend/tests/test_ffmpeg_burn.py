@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import subprocess
+
+import pytest
+
 from app.services import ffmpeg_burn
-from app.services.ffmpeg_burn import VideoLayout, probe_video_layout
+from app.services.ffmpeg_burn import (
+    VideoLayout,
+    VideoLayoutProbeError,
+    probe_video_layout,
+)
 
 
 def test_parse_cropdetect_output_uses_last_accumulated_crop() -> None:
@@ -11,6 +19,45 @@ def test_parse_cropdetect_output_uses_last_accumulated_crop() -> None:
     """
 
     assert ffmpeg_burn._parse_cropdetect_output(output) == (608, 1080, 656, 0)
+
+
+def test_probe_crop_sample_retries_once_after_timeout(monkeypatch) -> None:
+    calls: list[list[str]] = []
+    crop_output = (
+        "[Parsed_cropdetect_0] "
+        "w:608 h:1080 x:656 y:0 crop=608:1080:656:0"
+    )
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(command, timeout=15)
+        return subprocess.CompletedProcess(
+            command,
+            returncode=0,
+            stdout="",
+            stderr=crop_output,
+        )
+
+    monkeypatch.setattr(ffmpeg_burn.subprocess, "run", fake_run)
+
+    assert ffmpeg_burn._probe_crop_sample("https://example/episode.mp4", 10) == (
+        608,
+        1080,
+        656,
+        0,
+    )
+    assert len(calls) == 2
+
+
+def test_probe_video_layout_wraps_video_size_probe_timeout(monkeypatch) -> None:
+    def fail_size_probe(_path: str):
+        raise subprocess.TimeoutExpired(["ffprobe"], timeout=30)
+
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_size", fail_size_probe)
+
+    with pytest.raises(VideoLayoutProbeError, match="video size probe failed"):
+        probe_video_layout("https://example/episode.mp4", duration_seconds=100)
 
 
 def test_probe_video_layout_accepts_stable_centered_pillarbox(
@@ -106,7 +153,7 @@ def test_probe_video_layout_rejects_non_pillarbox_crop(monkeypatch) -> None:
     ) == VideoLayout.full_frame(1920, 1080)
 
 
-def test_probe_video_layout_falls_back_when_crop_probe_errors(
+def test_probe_video_layout_raises_when_crop_probe_errors(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
@@ -116,6 +163,29 @@ def test_probe_video_layout_falls_back_when_crop_probe_errors(
 
     monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", fail_probe)
 
-    assert probe_video_layout(
-        "episode.mp4", duration_seconds=100
-    ) == VideoLayout.full_frame(1920, 1080)
+    with pytest.raises(RuntimeError, match="insufficient successful samples"):
+        probe_video_layout("episode.mp4", duration_seconds=100)
+
+
+def test_probe_video_layout_raises_when_only_one_remote_sample_succeeds(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
+    samples = iter(
+        [
+            TimeoutError("first sample timed out"),
+            TimeoutError("second sample timed out"),
+            (608, 1080, 656, 0),
+        ]
+    )
+
+    def sample_or_raise(_path: str, _timestamp: float):
+        result = next(samples)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", sample_or_raise)
+
+    with pytest.raises(RuntimeError, match="insufficient successful samples"):
+        probe_video_layout("episode.mp4", duration_seconds=100)
