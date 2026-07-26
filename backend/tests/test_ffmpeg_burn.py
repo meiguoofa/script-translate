@@ -225,7 +225,7 @@ def test_probe_video_layout_rejects_non_pillarbox_crop(monkeypatch) -> None:
     ) == VideoLayout.full_frame(1920, 1080)
 
 
-def test_probe_video_layout_raises_when_crop_probe_errors(
+def test_probe_video_layout_falls_back_when_all_crop_probes_error(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
@@ -235,11 +235,12 @@ def test_probe_video_layout_raises_when_crop_probe_errors(
 
     monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", fail_probe)
 
-    with pytest.raises(RuntimeError, match="insufficient successful samples"):
-        probe_video_layout("episode.mp4", duration_seconds=100)
+    assert probe_video_layout(
+        "episode.mp4", duration_seconds=100
+    ) == VideoLayout.full_frame(1920, 1080)
 
 
-def test_probe_video_layout_raises_when_only_one_remote_sample_succeeds(
+def test_probe_video_layout_falls_back_when_only_one_remote_sample_succeeds(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1920, 1080))
@@ -259,5 +260,6 @@ def test_probe_video_layout_raises_when_only_one_remote_sample_succeeds(
 
     monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", sample_or_raise)
 
-    with pytest.raises(RuntimeError, match="insufficient successful samples"):
-        probe_video_layout("episode.mp4", duration_seconds=100)
+    assert probe_video_layout(
+        "https://example/episode.mp4", duration_seconds=100
+    ) == VideoLayout.full_frame(1920, 1080)

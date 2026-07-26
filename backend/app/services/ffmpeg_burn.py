@@ -213,7 +213,7 @@ def probe_video_layout(
 
     先采样 10% 和 50% 位置；若结果不一致，再用 90% 位置仲裁。
     只有至少两个有效样本相互吻合时才采用 cropdetect 结果。
-    远程读取失败导致成功样本不足时抛错，避免误把黑边算入字幕宽度。
+    成功样本不足时回退完整画布，避免因裁剪探测失败阻断整集。
     """
     try:
         canvas_width, canvas_height = probe_video_size(video_path)
@@ -251,7 +251,7 @@ def probe_video_layout(
         try:
             crop = _probe_crop_sample(video_path, timestamp)
         except Exception:  # noqa: BLE001
-            # 保留失败样本，最终由成功样本数量决定是否允许安全回退。
+            # 保留失败样本，成功样本不足时降级使用完整画布。
             logger.warning(
                 "cropdetect sample raised unexpectedly: path=%s timestamp=%.3f",
                 video_path,
@@ -293,10 +293,14 @@ def probe_video_layout(
                 break
 
     if successful_samples < 2:
-        raise VideoLayoutProbeError(
-            "insufficient successful samples for video layout detection: "
-            f"path={video_path} successful={successful_samples} samples={samples}"
+        logger.warning(
+            "insufficient successful samples; falling back to full frame: "
+            "path=%s successful=%d samples=%s",
+            video_path,
+            successful_samples,
+            samples,
         )
+        return full_frame
 
     if chosen is None:
         logger.info(
