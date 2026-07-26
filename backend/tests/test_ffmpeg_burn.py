@@ -50,6 +50,64 @@ def test_probe_crop_sample_retries_once_after_timeout(monkeypatch) -> None:
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize(
+    ("video_path", "expected_timeout"),
+    [
+        ("episode.mp4", 30),
+        ("https://example/episode.mp4", 60),
+    ],
+)
+def test_probe_video_size_uses_source_specific_timeout(
+    monkeypatch,
+    video_path: str,
+    expected_timeout: int,
+) -> None:
+    calls: list[int] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(
+            command,
+            returncode=0,
+            stdout="1920,1080\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(ffmpeg_burn.subprocess, "run", fake_run)
+
+    assert ffmpeg_burn.probe_video_size(video_path) == (1920, 1080)
+    assert calls == [expected_timeout]
+
+
+@pytest.mark.parametrize(
+    ("video_path", "expected_timeout"),
+    [
+        ("episode.mp4", 15),
+        ("https://example/episode.mp4", 45),
+    ],
+)
+def test_probe_crop_sample_uses_source_specific_timeout(
+    monkeypatch,
+    video_path: str,
+    expected_timeout: int,
+) -> None:
+    calls: list[int] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(
+            command,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(ffmpeg_burn.subprocess, "run", fake_run)
+
+    assert ffmpeg_burn._probe_crop_sample(video_path, 10) is None
+    assert calls == [expected_timeout]
+
+
 def test_probe_video_layout_wraps_video_size_probe_timeout(monkeypatch) -> None:
     def fail_size_probe(_path: str):
         raise subprocess.TimeoutExpired(["ffprobe"], timeout=30)
@@ -58,6 +116,20 @@ def test_probe_video_layout_wraps_video_size_probe_timeout(monkeypatch) -> None:
 
     with pytest.raises(VideoLayoutProbeError, match="video size probe failed"):
         probe_video_layout("https://example/episode.mp4", duration_seconds=100)
+
+
+def test_probe_video_layout_returns_full_frame_for_portrait_without_crop_probe(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_size", lambda _path: (1080, 1920))
+
+    def fail_probe(*_args, **_kwargs):
+        raise AssertionError("portrait video must not run another probe")
+
+    monkeypatch.setattr(ffmpeg_burn, "probe_video_duration_seconds", fail_probe)
+    monkeypatch.setattr(ffmpeg_burn, "_probe_crop_sample", fail_probe)
+
+    assert probe_video_layout("portrait.mp4") == VideoLayout.full_frame(1080, 1920)
 
 
 def test_probe_video_layout_accepts_stable_centered_pillarbox(

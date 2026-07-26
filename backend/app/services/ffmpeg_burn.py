@@ -42,6 +42,9 @@ class VideoLayout:
 
 def probe_video_size(video_path: str) -> tuple[int, int]:
     """用 ffprobe 获取视频宽高。返回 (width, height)。"""
+    timeout_seconds = (
+        60 if video_path.startswith(("http://", "https://")) else 30
+    )
     result = subprocess.run(
         [
             "ffprobe",
@@ -58,7 +61,7 @@ def probe_video_size(video_path: str) -> tuple[int, int]:
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=timeout_seconds,
     )
     w, h = result.stdout.strip().split(",")
     return int(w), int(h)
@@ -77,6 +80,9 @@ def _probe_crop_sample(
     timestamp_seconds: float,
 ) -> tuple[int, int, int, int] | None:
     """对一个短片段运行 cropdetect；瞬时失败时重试一次。"""
+    timeout_seconds = (
+        45 if video_path.startswith(("http://", "https://")) else 15
+    )
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -101,7 +107,7 @@ def _probe_crop_sample(
                 command,
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=timeout_seconds,
             )
         except Exception as exc:  # noqa: BLE001
             last_error = exc
@@ -216,6 +222,16 @@ def probe_video_layout(
             f"video size probe failed: path={video_path}"
         ) from exc
     full_frame = VideoLayout.full_frame(canvas_width, canvas_height)
+
+    if canvas_width < canvas_height:
+        logger.info(
+            "portrait canvas uses full frame without crop detection: "
+            "path=%s canvas=%sx%s",
+            video_path,
+            canvas_width,
+            canvas_height,
+        )
+        return full_frame
 
     if duration_seconds is None or duration_seconds <= 0:
         duration_seconds = probe_video_duration_seconds(video_path)
