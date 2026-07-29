@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   AlertTriangle,
+  ChevronDown,
   Download,
+  DownloadCloud,
   Loader2,
   RefreshCw,
   Square,
@@ -15,13 +17,19 @@ import {
 import type {
   ImsSpeechJobItemOut,
   ImsSpeechJobOut,
-  ImsSpeechTranslationItemOut,
 } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/sonner";
+import {
+  buildImsDownloadFilename,
+  countImsResources,
+  getImsResourceUrl,
+  triggerImsBrowserDownload,
+  type ImsDownloadResourceType,
+} from "@/pages/imsSpeechDownloadUtils";
 
 const JOB_STATUS = {
   pending: { label: "排队中", variant: "muted" },
@@ -50,6 +58,73 @@ type Artifact = {
   url: string | null;
 };
 
+type DownloadOption = {
+  key: ImsDownloadResourceType;
+  label: string;
+};
+
+function DownloadAllMenu({
+  count,
+  disabled,
+  options,
+  onDownload,
+}: {
+  count: number;
+  disabled: boolean;
+  options: DownloadOption[];
+  onDownload: (type: ImsDownloadResourceType) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {disabled ? (
+          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+        ) : (
+          <DownloadCloud className="mr-1 h-4 w-4" />
+        )}
+        {disabled ? "下载中…" : `下载全部（${count}）`}
+        <ChevronDown className="ml-1 h-3 w-3" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 top-full z-20 mt-1 min-w-[220px] rounded-md border bg-background py-1 shadow-md">
+          {options.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                setOpen(false);
+                onDownload(option.key);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ArtifactLink({ artifact }: { artifact: Artifact }) {
   if (!artifact.url) return null;
   return (
@@ -66,19 +141,33 @@ function ArtifactLink({ artifact }: { artifact: Artifact }) {
 }
 
 function TranslationArtifacts({
-  translation,
+  item,
+  language,
 }: {
-  translation: ImsSpeechTranslationItemOut;
+  item: ImsSpeechJobItemOut;
+  language: string;
 }) {
   const artifacts: Artifact[] = [
-    { label: "译制成片", url: translation.media_url },
-    { label: "翻译音轨", url: translation.translated_audio_url },
+    {
+      label: "译制成片",
+      url: getImsResourceUrl(item, "dubbed-video", language),
+    },
+    {
+      label: "翻译音轨",
+      url: getImsResourceUrl(item, "translated-audio", language),
+    },
     {
       label: "译文字幕",
-      url: translation.subtitle_signed_url || translation.subtitle_url,
+      url: getImsResourceUrl(item, "translated-subtitle", language),
     },
-    { label: "修订字幕", url: translation.fix_subtitle_url },
-    { label: "双语字幕", url: translation.bilingual_subtitle_url },
+    {
+      label: "修订字幕",
+      url: getImsResourceUrl(item, "fix-subtitle", language),
+    },
+    {
+      label: "双语字幕",
+      url: getImsResourceUrl(item, "bilingual-subtitle", language),
+    },
   ];
   return (
     <div className="flex flex-wrap gap-2">
@@ -125,7 +214,9 @@ function EpisodeCard({
         <div className="flex flex-wrap gap-2">
           <ArtifactLink artifact={{ label: "原视频", url: item.input_public_url }} />
           <ArtifactLink artifact={{ label: "擦除字幕视频", url: item.detext_video_url }} />
-          {translation ? <TranslationArtifacts translation={translation} /> : null}
+          {translation ? (
+            <TranslationArtifacts item={item} language={activeLanguage} />
+          ) : null}
         </div>
 
         {translation?.speech_translation_job_id ? (
@@ -150,6 +241,8 @@ export function ImsSpeechDetailPage() {
   const [activeLanguage, setActiveLanguage] = useState("");
   const [retrying, setRetrying] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [downloadingType, setDownloadingType] =
+    useState<ImsDownloadResourceType | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const timer = useRef<number | null>(null);
 
@@ -222,6 +315,38 @@ export function ImsSpeechDetailPage() {
     }
   }
 
+  async function downloadAll(type: ImsDownloadResourceType) {
+    if (!job || downloadingType) return;
+    setDownloadingType(type);
+    let triggered = 0;
+    let skipped = 0;
+    try {
+      for (const item of job.items) {
+        const url = getImsResourceUrl(item, type, effectiveLanguage);
+        if (!url) {
+          skipped += 1;
+          continue;
+        }
+        triggerImsBrowserDownload(
+          url,
+          buildImsDownloadFilename(item, type, effectiveLanguage),
+        );
+        triggered += 1;
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+
+      if (triggered === 0) {
+        toast.error("没有可下载的资源");
+      } else if (skipped > 0) {
+        toast.success(`已触发 ${triggered} 个下载，${skipped} 个资源缺失已跳过`);
+      } else {
+        toast.success(`已触发 ${triggered} 个下载`);
+      }
+    } finally {
+      setDownloadingType(null);
+    }
+  }
+
   if (!job) {
     return (
       <Card>
@@ -236,6 +361,23 @@ export function ImsSpeechDetailPage() {
   const canRetry =
     ["completed", "failed"].includes(job.status) &&
     job.partial_failed_count + job.failed_count > 0;
+  const downloadOptions = ([
+    { key: "original", label: "全部原视频" },
+    { key: "erased", label: "全部擦除字幕视频" },
+    { key: "dubbed-video", label: `全部译制成片（${effectiveLanguage}）` },
+    { key: "translated-audio", label: `全部翻译音轨（${effectiveLanguage}）` },
+    { key: "translated-subtitle", label: `全部译文字幕（${effectiveLanguage}）` },
+    { key: "fix-subtitle", label: `全部修订字幕（${effectiveLanguage}）` },
+    { key: "bilingual-subtitle", label: `全部双语字幕（${effectiveLanguage}）` },
+  ] satisfies DownloadOption[]).filter(
+    (option) =>
+      countImsResources(job.items, option.key, effectiveLanguage) > 0,
+  );
+  const downloadableItemCount = job.items.filter((item) =>
+    downloadOptions.some((option) =>
+      getImsResourceUrl(item, option.key, effectiveLanguage),
+    ),
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -253,6 +395,14 @@ export function ImsSpeechDetailPage() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              {downloadableItemCount > 1 ? (
+                <DownloadAllMenu
+                  count={downloadableItemCount}
+                  disabled={downloadingType !== null}
+                  options={downloadOptions}
+                  onDownload={downloadAll}
+                />
+              ) : null}
               {job.status === "pending" || job.status === "running" ? (
                 <Button variant="outline" onClick={stopRunning} disabled={stopping}>
                   {stopping ? (
